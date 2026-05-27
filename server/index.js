@@ -118,6 +118,7 @@ const server = http.createServer(async (req, res) => {
                 ok: true,
                 database: store.kind,
                 dbPath: store.dbPath,
+                worker: process.env.QUANTUM_WORKER_DISABLED === '1' ? 'disabled' : 'enabled',
                 time: new Date().toISOString(),
             });
             return;

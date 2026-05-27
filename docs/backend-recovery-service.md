@@ -4,7 +4,7 @@ QuantumBridge now has a backend that makes transfer lifecycle records durable ou
 
 ## Run It
 
-Start the API and worker:
+Start the API and embedded worker:
 
 ```bash
 npm run api
@@ -80,6 +80,8 @@ State transitions:
 - Already claimed flag from a recovery attempt -> `already_claimed`
 
 The worker never signs or submits wallet transactions. Browser wallets still handle manual Solana destination mints.
+
+On Render Free, the worker runs inside the web service. If you later move to a paid standalone worker service, run `npm run worker` in that service and set `QUANTUM_WORKER_DISABLED=1` on the web service.
 
 ## Browser State
 
