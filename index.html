@@ -225,8 +225,15 @@
                 <div class="status-console glass">
                     <div class="console-header">
                         <h3>Teleportation Status</h3>
-                        <div class="live-indicator">
-                            <span class="dot"></span> LIVE
+                        <div class="console-actions">
+                            <div class="live-indicator">
+                                <span class="dot"></span> LIVE
+                            </div>
+                            <button id="toggle-console" class="console-toggle" type="button" aria-expanded="true" aria-controls="console-logs" title="Collapse teleportation status">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="m6 9 6 6 6-6"/>
+                                </svg>
+                            </button>
                         </div>
                     </div>
                     <div id="console-logs" class="console-body">

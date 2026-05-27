@@ -305,6 +305,8 @@ const destinationAddressHint = document.getElementById('destination-address-hint
 const originChainSelect = document.getElementById('origin-chain');
 const destinationChainSelect = document.getElementById('destination-chain');
 const consoleLogs = document.getElementById('console-logs');
+const statusConsole = document.querySelector('.status-console');
+const toggleConsoleBtn = document.getElementById('toggle-console');
 const themeToggle = document.getElementById('theme-toggle');
 const forwardingNotice = document.getElementById('forwarding-notice');
 const maxBtn = document.getElementById('max-btn');
@@ -374,6 +376,25 @@ tabSwitchers.forEach(btn => {
     });
 });
 
+function setConsoleCollapsed(collapsed) {
+    if (!statusConsole || !toggleConsoleBtn || !consoleLogs) return;
+    statusConsole.classList.toggle('collapsed', collapsed);
+    toggleConsoleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    toggleConsoleBtn.title = collapsed ? 'Expand teleportation status' : 'Collapse teleportation status';
+    if (collapsed) {
+        consoleLogs.setAttribute('aria-hidden', 'true');
+    } else {
+        consoleLogs.removeAttribute('aria-hidden');
+        requestAnimationFrame(() => {
+            consoleLogs.scrollTop = consoleLogs.scrollHeight;
+        });
+    }
+}
+
+toggleConsoleBtn?.addEventListener('click', () => {
+    sounds.play('click');
+    setConsoleCollapsed(!statusConsole?.classList.contains('collapsed'));
+});
 
 function log(message, type = 'system') {
     const entry = document.createElement('div');
