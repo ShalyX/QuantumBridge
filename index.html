@@ -23,6 +23,12 @@
                 </svg>
                 <h1>Quantum<span>Bridge</span></h1>
             </div>
+            <nav class="product-tabs glass" aria-label="QuantumBridge workspace">
+                <button class="product-tab active" data-app-tab="demo" aria-selected="true">Home</button>
+                <button class="product-tab" data-app-tab="bridge" aria-selected="false">Bridge</button>
+                <button class="product-tab" data-app-tab="activity" aria-selected="false">Activity</button>
+                <button class="product-tab" data-app-tab="recovery" aria-selected="false">Recovery</button>
+            </nav>
             <div class="header-actions">
                 <button id="theme-toggle" title="Toggle Theme">
                     <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
@@ -52,18 +58,11 @@
         </header>
 
         <main class="product-shell">
-            <nav class="product-tabs glass" aria-label="QuantumBridge workspace">
-                <button class="product-tab active" data-app-tab="demo" aria-selected="true">Demo</button>
-                <button class="product-tab" data-app-tab="bridge" aria-selected="false">Bridge</button>
-                <button class="product-tab" data-app-tab="activity" aria-selected="false">Activity</button>
-                <button class="product-tab" data-app-tab="recovery" aria-selected="false">Recovery</button>
-            </nav>
-
             <section class="tab-panel active" data-tab-panel="demo">
                 <div class="landing-hero glass">
                     <div class="landing-copy">
                         <span class="eyebrow">CCTP-powered testnet bridge</span>
-                        <h2>QuantumBridge</h2>
+                        <h2 class="brand-title">Quantum<span>Bridge</span></h2>
                         <p>Move USDC across Arc Testnet, Solana Devnet, and Ethereum Sepolia with durable transfer state, route-aware recovery, and supported-wallet guardrails.</p>
                         <div class="landing-actions">
                             <button class="btn btn-primary" data-switch-tab="bridge">Open Bridge</button>
@@ -242,6 +241,9 @@
                         <div class="portal-title-group">
                             <h3>Activity Portal</h3>
                             <div class="portal-filters">
+                                <div class="activity-search">
+                                    <input id="activity-search" type="search" placeholder="Search tx or address">
+                                </div>
                                 <button class="filter-btn active" data-filter="all">All</button>
                                 <button class="filter-btn" data-filter="success">Success</button>
                                 <button class="filter-btn" data-filter="pending">Pending</button>

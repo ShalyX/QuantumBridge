@@ -172,6 +172,10 @@ kit.on('*', async (event) => {
         addActivity('Teleport', activeBridgeContext.from, activeBridgeContext.to, activeBridgeContext.amount, 'pending', null, {
             burnTxHash: txHash,
             recoveryId: activeBridgeContext.id,
+            sourceWallet: activeBridgeContext.sourceWallet,
+            destinationWallet: activeBridgeContext.destinationWallet,
+            recipient: activeBridgeContext.recipient,
+            wallets: activeBridgeContext.wallets,
             lifecycleState: TRANSFER_STATES.BURN_SUBMITTED,
             lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.BURN_SUBMITTED),
         });
@@ -286,6 +290,7 @@ const sounds = new QuantumSoundEngine();
 // Filtering State
 let currentStatusFilter = 'all';
 let currentChainFilter = 'all';
+let currentActivitySearch = '';
 
 // DOM Elements
 const connectEvmBtn = document.getElementById('connect-evm');
@@ -319,6 +324,7 @@ const estArrivalEl = document.getElementById('est-arrival');
 const routeHealthPill = document.getElementById('route-health-pill');
 const activityFilterBtns = Array.from(document.querySelectorAll('.filter-btn[data-filter]'));
 const chainFilterSelect = document.getElementById('chain-filter');
+const activitySearchInput = document.getElementById('activity-search');
 const productTabs = Array.from(document.querySelectorAll('[data-app-tab]'));
 const productPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
 const tabSwitchers = Array.from(document.querySelectorAll('[data-switch-tab]'));
@@ -486,6 +492,7 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     missingDestinationAddress: 'Connect a destination wallet or paste a destination address.',
     noCctpMessage: 'No CCTP burn message was found for this transaction.',
     forwarderFeeTooHigh: 'This transfer is below the current Circle Forwarder fee for this route. Increase the amount and try again.',
+    solanaAtaCreation: 'Solana token account setup failed. Use Backpack or Solflare, or paste a Solana destination that already has a devnet USDC token account.',
     simulationFailed: 'The destination chain rejected this mint. Try Resume transfer again, or use a supported wallet for this route.',
     genericRecoverable: 'Transfer paused. Resume it from the recovery panel when wallets are connected.',
 });
@@ -779,6 +786,10 @@ function mergeBackendTransfersIntoLocal(transfers) {
             addActivity('Teleport', transfer.from, transfer.to, transfer.amount || 'unknown', getTransferStatusBucket(transfer.state), transfer.mintTxHash || null, {
                 recoveryId: transfer.recoveryId || transfer.id,
                 burnTxHash: transfer.burnTxHash || null,
+                sourceWallet: transfer.sourceWallet || null,
+                destinationWallet: transfer.destinationWallet || null,
+                recipient: transfer.recipient || null,
+                wallets: transfer.wallets || [],
                 alreadyMinted: Boolean(transfer.alreadyMinted),
                 lifecycleState: transfer.state,
                 lifecycleLabel: getTransferStateLabel(transfer.state),
@@ -1098,6 +1109,14 @@ function getProductErrorMessage(error) {
     if (lower.includes('looks like an evm transaction hash')) return PRODUCT_ERROR_MESSAGES.solanaHashMismatch;
     if (lower.includes('looks like a solana signature')) return PRODUCT_ERROR_MESSAGES.evmHashMismatch;
     if (lower.includes('no cctp message')) return PRODUCT_ERROR_MESSAGES.noCctpMessage;
+    if (
+        lower.includes('failed to create ata') ||
+        lower.includes('ata creation failed') ||
+        lower.includes('can not add signature') ||
+        lower.includes('not required to sign this transaction')
+    ) {
+        return PRODUCT_ERROR_MESSAGES.solanaAtaCreation;
+    }
     if (lower.includes('connect backpack') || lower.includes('connect solflare') || lower.includes('solflare or backpack') || lower.includes('phantom')) {
         return PRODUCT_ERROR_MESSAGES.solanaRecoveryWallet;
     }
@@ -2694,6 +2713,10 @@ teleportBtn.addEventListener('click', async () => {
         });
         addActivity('Teleport', from, to, amount, 'pending', null, {
             recoveryId: activeBridgeContext.id,
+            sourceWallet,
+            destinationWallet,
+            recipient,
+            wallets: activeBridgeContext.wallets,
             lifecycleState: TRANSFER_STATES.CREATED,
             lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.CREATED),
         });
@@ -2743,6 +2766,10 @@ teleportBtn.addEventListener('click', async () => {
             addActivity('Teleport', from, to, amount, 'success', result.transactionHash, {
                 recoveryId: activeBridgeContext?.id,
                 burnTxHash: activeBridgeContext?.burnTxHash || null,
+                sourceWallet,
+                destinationWallet,
+                recipient,
+                wallets: activeBridgeContext?.wallets || [],
                 lifecycleState: TRANSFER_STATES.COMPLETED,
                 lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.COMPLETED),
             });
@@ -2784,6 +2811,10 @@ teleportBtn.addEventListener('click', async () => {
             addActivity('Teleport', from, to, amount, 'error', null, {
                 recoveryId: activeBridgeContext?.id,
                 burnTxHash: activeBridgeContext?.burnTxHash || null,
+                sourceWallet,
+                destinationWallet,
+                recipient,
+                wallets: activeBridgeContext?.wallets || [],
                 lifecycleState: nextState,
                 lifecycleLabel: getTransferStateLabel(nextState),
                 errorMessage: productMessage,
@@ -2819,6 +2850,10 @@ teleportBtn.addEventListener('click', async () => {
         addActivity('Teleport', from, to, amount, 'error', null, {
             recoveryId: activeBridgeContext?.id,
             burnTxHash: activeBridgeContext?.burnTxHash || null,
+            sourceWallet: activeBridgeContext?.sourceWallet || null,
+            destinationWallet: activeBridgeContext?.destinationWallet || null,
+            recipient: activeBridgeContext?.recipient || null,
+            wallets: activeBridgeContext?.wallets || [],
             lifecycleState: nextState,
             lifecycleLabel: getTransferStateLabel(nextState),
             errorMessage: productMessage,
@@ -2912,13 +2947,30 @@ function getActivityExplorerTarget(item) {
 }
 
 function getVisibleActivities() {
+    const query = currentActivitySearch.trim().toLowerCase();
     return activityHistory.filter(item => {
         const status = item.status || 'pending';
         const statusMatches = currentStatusFilter === 'all' || status === currentStatusFilter;
         const chainMatches = currentChainFilter === 'all' ||
             item.from === currentChainFilter ||
             item.to === currentChainFilter;
-        return statusMatches && chainMatches;
+        const searchText = [
+            item.id,
+            item.recoveryId,
+            item.txHash,
+            item.mintTxHash,
+            item.burnTxHash,
+            item.sourceWallet,
+            item.destinationWallet,
+            item.recipient,
+            item.from,
+            item.to,
+            item.amount,
+            item.errorMessage,
+            ...(Array.isArray(item.wallets) ? item.wallets : []),
+        ].filter(Boolean).join(' ').toLowerCase();
+        const searchMatches = !query || searchText.includes(query);
+        return statusMatches && chainMatches && searchMatches;
     });
 }
 
@@ -3185,6 +3237,11 @@ activityFilterBtns.forEach(btn => {
 
 chainFilterSelect?.addEventListener('change', () => {
     currentChainFilter = chainFilterSelect.value || 'all';
+    renderActivity();
+});
+
+activitySearchInput?.addEventListener('input', () => {
+    currentActivitySearch = activitySearchInput.value || '';
     renderActivity();
 });
 
