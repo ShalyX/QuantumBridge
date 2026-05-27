@@ -23,6 +23,12 @@
                 </svg>
                 <h1>Quantum<span>Bridge</span></h1>
             </div>
+            <nav class="product-tabs" aria-label="QuantumBridge workspace">
+                <button class="product-tab active" data-app-tab="demo" aria-selected="true">Home</button>
+                <button class="product-tab" data-app-tab="bridge" aria-selected="false">Bridge</button>
+                <button class="product-tab" data-app-tab="activity" aria-selected="false">Activity</button>
+                <button class="product-tab" data-app-tab="recovery" aria-selected="false">Recovery</button>
+            </nav>
             <div class="header-actions">
                 <button id="theme-toggle" title="Toggle Theme">
                     <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
@@ -34,7 +40,7 @@
                             <img src="https://cryptologos.cc/logos/ethereum-eth-logo.svg?v=025" alt="EVM" width="16">
                             <span>Connect EVM</span>
                         </button>
-                        <button id="disconnect-evm" class="btn btn-glass disconnect-icon-btn" hidden title="Disconnect EVM wallet" aria-label="Disconnect EVM wallet">
+                        <button id="disconnect-evm" class="btn btn-glass disconnect-icon-btn" disabled title="Disconnect EVM wallet" aria-label="Disconnect EVM wallet">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                         </button>
                     </div>
@@ -43,7 +49,7 @@
                             <img src="https://cryptologos.cc/logos/solana-sol-logo.svg?v=025" alt="Solana" width="16">
                             <span>Connect Solana</span>
                         </button>
-                        <button id="disconnect-solana" class="btn btn-glass disconnect-icon-btn" hidden title="Disconnect Solana wallet" aria-label="Disconnect Solana wallet">
+                        <button id="disconnect-solana" class="btn btn-glass disconnect-icon-btn" disabled title="Disconnect Solana wallet" aria-label="Disconnect Solana wallet">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                         </button>
                     </div>
@@ -52,13 +58,6 @@
         </header>
 
         <main class="product-shell">
-            <nav class="product-tabs" aria-label="QuantumBridge workspace">
-                <button class="product-tab active" data-app-tab="demo" aria-selected="true">Home</button>
-                <button class="product-tab" data-app-tab="bridge" aria-selected="false">Bridge</button>
-                <button class="product-tab" data-app-tab="activity" aria-selected="false">Activity</button>
-                <button class="product-tab" data-app-tab="recovery" aria-selected="false">Recovery</button>
-            </nav>
-
             <section class="tab-panel active" data-tab-panel="demo">
                 <div class="landing-hero glass">
                     <div class="landing-copy">

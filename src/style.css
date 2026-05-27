@@ -65,9 +65,9 @@ body {
 }
 
 .app-container {
-    max-width: 1200px;
+    max-width: 1560px;
     margin: 0 auto;
-    padding: 2rem;
+    padding: 1rem 2rem 2rem;
     display: flex;
     flex-direction: column;
     min-height: 100vh;
@@ -76,10 +76,10 @@ body {
 /* Header Styles */
 header {
     display: grid;
-    grid-template-columns: auto auto;
+    grid-template-columns: auto minmax(360px, 1fr) auto;
     align-items: center;
-    gap: clamp(1.5rem, 3.2vw, 3rem);
-    margin-bottom: 1.05rem;
+    gap: clamp(2rem, 4vw, 4.5rem);
+    margin-bottom: 3rem;
 }
 
 .logo {
@@ -109,26 +109,30 @@ header {
 .header-actions {
     display: flex;
     align-items: center;
-    gap: 0.9rem;
+    gap: 1rem;
     justify-self: end;
+    min-width: 0;
 }
 
 .wallet-status {
     display: flex;
     gap: 0.75rem;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: flex-end;
+    align-items: center;
+    min-width: 0;
 }
 
 .wallet-control {
-    display: grid;
-    grid-template-columns: minmax(148px, auto) 38px;
+    display: flex;
     gap: 0.45rem;
     align-items: center;
+    flex: 0 0 auto;
 }
 
 .wallet-control .btn:not(.disconnect-icon-btn) {
     min-height: 38px;
+    min-width: 152px;
     white-space: nowrap;
 }
 
@@ -668,8 +672,7 @@ header {
 }
 
 .product-tabs {
-    position: sticky;
-    top: 1rem;
+    position: static;
     z-index: 20;
     display: flex;
     gap: 0.65rem;
@@ -677,7 +680,7 @@ header {
     max-width: 100%;
     padding: 0;
     border-radius: 0;
-    margin: 0 auto 0.25rem;
+    margin: 0 auto;
     justify-self: center;
 }
 
@@ -1009,6 +1012,7 @@ footer {
         grid-template-columns: 1fr;
         gap: 1rem;
         align-items: flex-start;
+        margin-bottom: 1.6rem;
     }
 
     .product-shell {
@@ -1028,6 +1032,7 @@ footer {
         grid-template-columns: 1fr;
     }
     .wallet-control {
+        display: grid;
         grid-template-columns: minmax(0, 1fr) 38px;
     }
     .transfer-grid { grid-template-columns: 1fr; }
@@ -2280,6 +2285,17 @@ footer {
 
 .disconnect-icon-btn[hidden] {
     display: none;
+}
+
+.disconnect-icon-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    filter: grayscale(0.7);
+}
+
+.disconnect-icon-btn:disabled:hover {
+    transform: none;
+    box-shadow: none;
 }
 
 .disconnect-icon-btn:hover {

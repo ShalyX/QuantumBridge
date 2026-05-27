@@ -2121,7 +2121,10 @@ async function connectEvmWallet(providerDetail, options = {}) {
         }
 
         connectEvmBtn.querySelector('span').innerText = `${evmAccount.slice(0, 6)}...${evmAccount.slice(-4)}`;
-        if (disconnectEvmBtn) disconnectEvmBtn.hidden = false;
+        if (disconnectEvmBtn) {
+            disconnectEvmBtn.hidden = false;
+            disconnectEvmBtn.disabled = false;
+        }
         rememberEvmWallet(providerDetail, evmAccount);
         log(`${silent ? 'EVM Node Restored' : 'EVM Node Linked'}: ${evmAccount}`, 'success');
         checkReady();
@@ -2133,7 +2136,7 @@ async function connectEvmWallet(providerDetail, options = {}) {
         evmAdapter = null;
         evmAccount = null;
         connectEvmBtn.querySelector('span').innerText = "Connect EVM";
-        if (disconnectEvmBtn) disconnectEvmBtn.hidden = true;
+        if (disconnectEvmBtn) disconnectEvmBtn.disabled = true;
         if (silent) {
             console.warn('[QuantumBridge] Silent EVM restore skipped.', e);
             return false;
@@ -2213,7 +2216,7 @@ function disconnectEvmWallet() {
     evmRestoreAttempted = false;
     forgetWalletSessionPart('evm');
     connectEvmBtn.querySelector('span').innerText = "Connect EVM";
-    if (disconnectEvmBtn) disconnectEvmBtn.hidden = true;
+    if (disconnectEvmBtn) disconnectEvmBtn.disabled = true;
     refreshAfterWalletDisconnect();
 }
 
@@ -2227,7 +2230,7 @@ function disconnectSolanaWallet() {
     solanaRestoreAttempted = false;
     forgetWalletSessionPart('solana');
     connectSolanaBtn.querySelector('span').innerText = "Connect Solana";
-    if (disconnectSolanaBtn) disconnectSolanaBtn.hidden = true;
+    if (disconnectSolanaBtn) disconnectSolanaBtn.disabled = true;
     refreshAfterWalletDisconnect();
 }
 
@@ -2436,7 +2439,10 @@ async function connectSolanaWallet(walletType, options = {}) {
         solanaAccount = connectedAddress;
         solanaWalletType = walletType;
         connectSolanaBtn.querySelector('span').innerText = `${solanaAccount.slice(0, 4)}...${solanaAccount.slice(-4)}`;
-        if (disconnectSolanaBtn) disconnectSolanaBtn.hidden = false;
+        if (disconnectSolanaBtn) {
+            disconnectSolanaBtn.hidden = false;
+            disconnectSolanaBtn.disabled = false;
+        }
         rememberSolanaWallet(walletType, solanaAccount);
         log(`${silent ? 'Solana Fleet Restored' : 'Solana Fleet Connected'}: ${solanaAccount}`, 'success');
         checkReady(); updateBalances();
@@ -2453,7 +2459,7 @@ async function connectSolanaWallet(walletType, options = {}) {
             log(`Solana connection failed: ${getProductErrorMessage(e)}`, 'error');
         }
         btnSpan.innerText = "Connect Solana";
-        if (disconnectSolanaBtn) disconnectSolanaBtn.hidden = true;
+        if (disconnectSolanaBtn) disconnectSolanaBtn.disabled = true;
         checkReady();
         return false;
     } finally {
