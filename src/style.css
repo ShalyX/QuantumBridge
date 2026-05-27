@@ -46,6 +46,42 @@ body {
     min-height: 100vh;
 }
 
+body,
+.console-body,
+.portal-body,
+.pending-recoveries,
+.tx-detail-card {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(6, 182, 212, 0.38) rgba(255, 255, 255, 0.04);
+}
+
+body::-webkit-scrollbar,
+.console-body::-webkit-scrollbar,
+.portal-body::-webkit-scrollbar,
+.pending-recoveries::-webkit-scrollbar,
+.tx-detail-card::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+body::-webkit-scrollbar-track,
+.console-body::-webkit-scrollbar-track,
+.portal-body::-webkit-scrollbar-track,
+.pending-recoveries::-webkit-scrollbar-track,
+.tx-detail-card::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 999px;
+}
+
+body::-webkit-scrollbar-thumb,
+.console-body::-webkit-scrollbar-thumb,
+.portal-body::-webkit-scrollbar-thumb,
+.pending-recoveries::-webkit-scrollbar-thumb,
+.tx-detail-card::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(124, 58, 237, 0.62), rgba(6, 182, 212, 0.62));
+    border-radius: 999px;
+}
+
 .modal-open {
     overflow: hidden;
 }
@@ -598,6 +634,7 @@ header {
     flex: 1;
     min-height: 210px;
     max-height: 360px;
+    overflow-x: hidden;
     overflow-y: auto;
     font-family: var(--font-mono);
     font-size: 0.76rem;
@@ -612,6 +649,7 @@ header {
     margin-bottom: 0.5rem;
     border-left: 2px solid transparent;
     padding-left: 0.75rem;
+    overflow-wrap: anywhere;
 }
 
 .log-entry.system { color: #818cf8; }
@@ -1478,7 +1516,7 @@ footer {
     border-radius: 16px;
     overflow: hidden;
     max-height: none;
-    height: min(680px, calc(100vh - 220px));
+    height: min(620px, calc(100vh - 240px));
     min-height: 430px;
     display: flex;
     flex-direction: column;
@@ -1608,12 +1646,20 @@ footer {
     min-height: 0;
 }
 
+.portal-body.empty-portal {
+    display: grid;
+    place-items: center;
+}
+
 .empty-state {
     text-align: center;
-    padding: 2rem;
+    padding: 1.5rem 2rem;
     color: var(--text-secondary);
     font-size: 0.85rem;
     font-style: italic;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.025);
 }
 
 .activity-item {
@@ -2039,7 +2085,10 @@ footer {
     padding: 1.4rem;
     border-radius: 18px;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    min-height: 560px;
+    min-height: 500px;
+    height: min(620px, calc(100vh - 240px));
+    display: flex;
+    flex-direction: column;
 }
 
 .recovery-banner {
@@ -2145,11 +2194,38 @@ footer {
     display: grid;
     gap: 10px;
     margin-top: 12px;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .recovery-empty {
     color: var(--text-secondary);
     font-size: 0.8rem;
+}
+
+.pending-recoveries.empty-recovery-list {
+    flex: 1;
+    place-items: center;
+}
+
+.recovery-empty-card {
+    width: min(100%, 420px);
+    display: grid;
+    gap: 0.45rem;
+    padding: 1.25rem;
+    text-align: center;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.recovery-empty-card strong {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+.recovery-empty-card span {
+    line-height: 1.55;
 }
 
 .recovery-item {

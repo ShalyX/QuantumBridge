@@ -1400,10 +1400,17 @@ function renderPendingRecoveries() {
     if (!pendingRecoveriesEl) return;
     const actionable = getActionableRecoveries();
     if (actionable.length === 0) {
-        pendingRecoveriesEl.innerHTML = '<div class="recovery-empty">No pending CCTP recovery checkpoints.</div>';
+        pendingRecoveriesEl.classList.add('empty-recovery-list');
+        pendingRecoveriesEl.innerHTML = `
+            <div class="recovery-empty recovery-empty-card">
+                <strong>No transfers waiting</strong>
+                <span>Paste a burn transaction above or connect wallets to load recoverable transfers.</span>
+            </div>
+        `;
         return;
     }
 
+    pendingRecoveriesEl.classList.remove('empty-recovery-list');
     pendingRecoveriesEl.innerHTML = actionable.map(item => {
         const route = `${CHAIN_LABELS[item.from] || item.from || 'Solana'} -> ${CHAIN_LABELS[item.to] || item.to || 'Arc'}`;
         const disabled = item.status === 'attesting' || item.status === 'minting';
@@ -3177,13 +3184,16 @@ function renderActivity() {
     if (!list) return;
     const visibleActivities = getVisibleActivities();
     if (activityHistory.length === 0) {
+        list.classList.add('empty-portal');
         list.innerHTML = '<div class="empty-state">No recent activity detected.</div>';
         return;
     }
     if (visibleActivities.length === 0) {
+        list.classList.add('empty-portal');
         list.innerHTML = '<div class="empty-state">No activity matches these filters.</div>';
         return;
     }
+    list.classList.remove('empty-portal');
     list.innerHTML = visibleActivities.map(item => {
         const lifecycleState = item.lifecycleState || item.state || (item.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : null);
         const lifecycleLabel = item.lifecycleLabel || (lifecycleState ? getTransferStateLabel(lifecycleState) : (item.status || 'pending'));
