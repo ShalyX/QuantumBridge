@@ -78,6 +78,7 @@ Expected:
 ```json
 {
   "ok": true,
+  "version": "0.1.0",
   "database": "postgres",
   "worker": "enabled"
 }
@@ -88,4 +89,4 @@ Expected:
 - Render Free does not support standalone background worker services, so the Blueprint runs Iris polling inside the web service with `QUANTUM_WORKER_DISABLED=0`.
 - On a paid plan, you can split polling into a standalone worker by adding a worker service that runs `npm run worker`, then setting `QUANTUM_WORKER_DISABLED=1` on the web service.
 - Transfer history is not stored in browser storage; reconnecting a wallet reloads history from Postgres through `/api/transfers?wallet=...`.
-- `CORS_ORIGIN` is set to `*` in the Blueprint because the web service serves the frontend and API from the same origin. Tighten it if you later host the frontend elsewhere.
+- `CORS_ORIGIN` is locked to `https://quantum-bridge.onrender.com` in the Blueprint because the web service serves the frontend and API from the same origin. Use a comma-separated allowlist if you add a custom production domain.

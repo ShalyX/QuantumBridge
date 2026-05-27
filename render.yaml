@@ -22,7 +22,7 @@ services:
       - key: IRIS_API
         value: https://iris-api-sandbox.circle.com
       - key: CORS_ORIGIN
-        value: "*"
+        value: https://quantum-bridge.onrender.com
 
 databases:
   - name: quantum-bridge-postgres

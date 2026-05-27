@@ -198,6 +198,14 @@ kit.on('*', async (event) => {
                 state: nextState,
                 errorMessage: productMessage,
             });
+            recordTransferFailure(activeBridgeContext.id, {
+                stage: methodName || 'bridge.event',
+                route: `${activeBridgeContext.from}->${activeBridgeContext.to}`,
+                state: nextState,
+                burnTxHash: activeBridgeContext.burnTxHash || null,
+                productMessage,
+                error: step?.error || step?.errorMessage || step,
+            });
         }
     }
     updateSteps(method, state);
@@ -304,7 +312,9 @@ const closeTxDetailsBtn = document.getElementById('close-tx-details');
 const txDetailsContent = document.getElementById('tx-details-content');
 const stepper = document.getElementById('teleport-stepper');
 const swapChainsBtn = document.getElementById('swap-chains');
+const confidenceScoreEl = document.getElementById('confidence-score');
 const estArrivalEl = document.getElementById('est-arrival');
+const routeHealthPill = document.getElementById('route-health-pill');
 const activityFilterBtns = Array.from(document.querySelectorAll('.filter-btn[data-filter]'));
 const chainFilterSelect = document.getElementById('chain-filter');
 const walletModalTabs = Array.from(document.querySelectorAll('#quantum-wallet-modal .modal-tab[data-tab]'));
@@ -406,7 +416,7 @@ const TRANSFER_STATE_LABELS = Object.freeze({
     [TRANSFER_STATES.FAILED]: 'Failed before burn',
 });
 
-const ROUTE_ETA_SECONDS = Object.freeze({
+const ROUTE_BASE_ESTIMATE_SECONDS = Object.freeze({
     'arc:solana': 22,
     'solana:arc': 28,
     'ethereum:arc': 16,
@@ -415,11 +425,17 @@ const ROUTE_ETA_SECONDS = Object.freeze({
     'solana:ethereum': 30,
 });
 
+const NETWORK_HEALTH_PROFILES = Object.freeze({
+    stable: { label: 'Stable', multiplier: 1 },
+    busy: { label: 'Busy', multiplier: 1.45 },
+    congested: { label: 'Congested', multiplier: 2.25 },
+});
+
 const PRODUCT_ERROR_MESSAGES = Object.freeze({
     alreadyClaimed: 'This burn was already claimed.',
     attestationPending: 'Circle attestation is not ready yet.',
     solanaRecoveryWallet: 'Connect Solflare or Backpack to complete this route.',
-    phantomSourceUnsupported: 'Connect Solflare or Backpack to complete this route.',
+    phantomSourceUnsupported: 'Phantom is limited for this CCTP route. Connect Backpack or Solflare to complete it.',
     walletConnection: 'Wallet connection failed. Refresh and reconnect this wallet from the modal.',
     walletPluginClosed: 'Wallet connection closed. Reopen or unlock the wallet, then try again.',
     walletRejected: 'Wallet approval was cancelled.',
@@ -437,8 +453,15 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
 const pendingTransferSyncs = new Map();
 let transferSyncTimer = null;
 let etaTimer = null;
-let etaDeadline = 0;
 let activeEtaRoute = null;
+let etaRefreshSequence = 0;
+let routeHealthState = {
+    status: 'stable',
+    label: NETWORK_HEALTH_PROFILES.stable.label,
+    multiplier: NETWORK_HEALTH_PROFILES.stable.multiplier,
+    latencyMs: null,
+    checkedAt: null,
+};
 
 function shortHash(hash) {
     if (!hash) return 'unknown';
@@ -639,6 +662,36 @@ async function recordTransferEvent(transferId, type, payload = {}) {
     } catch (error) {
         console.warn('[QuantumBridge] Transfer event sync failed.', error);
     }
+}
+
+function serializeFailureForTelemetry(error, fallbackMessage = '') {
+    const rawMessage = getErrorText(error) || fallbackMessage || '';
+    return {
+        productMessage: getProductErrorMessage(error || fallbackMessage),
+        rawMessage: rawMessage.slice(0, 2000),
+        name: error?.name || null,
+        code: error?.code || error?.cause?.code || null,
+        type: error?.type || null,
+        recoverability: error?.recoverability || null,
+        stack: typeof error?.stack === 'string' ? error.stack.slice(0, 2500) : null,
+    };
+}
+
+function recordTransferFailure(transferId, details = {}) {
+    if (!transferId) return;
+    const errorDetails = serializeFailureForTelemetry(details.error, details.productMessage);
+    recordTransferEvent(transferId, 'transfer.failed', {
+        stage: details.stage || 'unknown',
+        route: details.route || null,
+        state: details.state || null,
+        burnTxHash: details.burnTxHash || null,
+        mintTxHash: details.mintTxHash || null,
+        walletType: solanaWalletType || null,
+        sourceWallet: details.sourceWallet || activeBridgeContext?.sourceWallet || null,
+        destinationWallet: details.destinationWallet || activeBridgeContext?.destinationWallet || null,
+        error: errorDetails,
+        capturedAt: nowIso(),
+    });
 }
 
 function mergeBackendTransfersIntoLocal(transfers) {
@@ -1059,46 +1112,103 @@ function syncDestinationAddressUI() {
     return valid;
 }
 
-function getRouteEtaSeconds(from = originChainSelect?.value, to = destinationChainSelect?.value) {
+function getRouteBaseEstimateSeconds(from = originChainSelect?.value, to = destinationChainSelect?.value) {
     const routeKey = `${from}:${to}`;
-    if (ROUTE_ETA_SECONDS[routeKey]) return ROUTE_ETA_SECONDS[routeKey];
+    if (ROUTE_BASE_ESTIMATE_SECONDS[routeKey]) return ROUTE_BASE_ESTIMATE_SECONDS[routeKey];
     if (from === 'solana' || to === 'solana') return 28;
     return FORWARDER_DESTINATIONS.has(to) ? 18 : 14;
+}
+
+function getRouteEstimateRange(from = originChainSelect?.value, to = destinationChainSelect?.value) {
+    const base = getRouteBaseEstimateSeconds(from, to);
+    const multiplier = routeHealthState.multiplier || 1;
+    const low = Math.max(8, Math.ceil(base * multiplier));
+    const high = Math.max(low + 4, Math.ceil(low * 1.35));
+    return { low, high };
 }
 
 function setEstimatedArrivalText(text) {
     if (estArrivalEl) estArrivalEl.textContent = text;
 }
 
+function setRouteHealthUi() {
+    if (confidenceScoreEl) {
+        confidenceScoreEl.textContent = routeHealthState.latencyMs === null
+            ? routeHealthState.label
+            : `${routeHealthState.latencyMs}ms`;
+    }
+    if (routeHealthPill) {
+        routeHealthPill.className = `health-pill ${routeHealthState.status}`;
+        routeHealthPill.textContent = routeHealthState.label;
+    }
+}
+
 function updateEstimatedArrival() {
     if (!estArrivalEl) return;
-    if (etaDeadline > 0) {
-        const remaining = Math.max(0, Math.ceil((etaDeadline - Date.now()) / 1000));
-        if (remaining > 0) {
-            setEstimatedArrivalText(`~${remaining}s`);
-            return;
-        }
-        setEstimatedArrivalText('Finalizing');
-        return;
-    }
-    setEstimatedArrivalText(`~${getRouteEtaSeconds()}s`);
+    const route = activeEtaRoute || {
+        from: originChainSelect?.value || 'arc',
+        to: destinationChainSelect?.value || 'solana',
+    };
+    const { low, high } = getRouteEstimateRange(route.from, route.to);
+    setRouteHealthUi();
+    setEstimatedArrivalText(`~${low}-${high}s`);
 }
 
-function startEstimatedArrivalCountdown(from, to) {
-    activeEtaRoute = { from, to };
-    etaDeadline = Date.now() + (getRouteEtaSeconds(from, to) * 1000);
-    if (etaTimer) window.clearInterval(etaTimer);
+function routeHealthFromLatency(latencyMs, failedCount = 0) {
+    if (failedCount > 0 || latencyMs > 4000) return { status: 'congested', ...NETWORK_HEALTH_PROFILES.congested };
+    if (latencyMs > 1800) return { status: 'busy', ...NETWORK_HEALTH_PROFILES.busy };
+    return { status: 'stable', ...NETWORK_HEALTH_PROFILES.stable };
+}
+
+async function probeChainLatency(chainKey) {
+    const startedAt = performance.now();
+    await getDestinationProgressBlock(chainKey);
+    return Math.round(performance.now() - startedAt);
+}
+
+async function refreshRouteHealth(from, to, sequence) {
+    const probes = await Promise.allSettled([from, to].map(chain => probeChainLatency(chain)));
+    if (sequence !== etaRefreshSequence) return;
+    const latencies = probes
+        .filter(result => result.status === 'fulfilled')
+        .map(result => result.value);
+    const failedCount = probes.filter(result => result.status === 'rejected').length;
+    const latencyMs = latencies.length > 0 ? Math.max(...latencies) : 5000;
+    routeHealthState = {
+        ...routeHealthFromLatency(latencyMs, failedCount),
+        latencyMs,
+        checkedAt: nowIso(),
+    };
     updateEstimatedArrival();
-    etaTimer = window.setInterval(updateEstimatedArrival, 1000);
 }
 
-function stopEstimatedArrivalCountdown(label = null) {
+function startEstimatedArrivalMonitor(from = originChainSelect?.value, to = destinationChainSelect?.value) {
+    activeEtaRoute = { from, to };
+    if (etaTimer) window.clearInterval(etaTimer);
+    const sequence = ++etaRefreshSequence;
+    updateEstimatedArrival();
+    refreshRouteHealth(from, to, sequence).catch(error => {
+        console.warn('[QuantumBridge] Route health probe failed.', error);
+    });
+    etaTimer = window.setInterval(() => {
+        const route = activeEtaRoute || {
+            from: originChainSelect?.value || from,
+            to: destinationChainSelect?.value || to,
+        };
+        refreshRouteHealth(route.from, route.to, sequence).catch(error => {
+            console.warn('[QuantumBridge] Route health probe failed.', error);
+        });
+    }, 15000);
+}
+
+function finishEstimatedArrival(label = null) {
     if (etaTimer) window.clearInterval(etaTimer);
     etaTimer = null;
-    etaDeadline = 0;
-    activeEtaRoute = null;
+    etaRefreshSequence += 1;
     if (label) setEstimatedArrivalText(label);
-    else updateEstimatedArrival();
+    window.setTimeout(() => {
+        startEstimatedArrivalMonitor(originChainSelect?.value, destinationChainSelect?.value);
+    }, label ? 5000 : 0);
 }
 
 function markRecoveryAlreadyMinted(recoveryKey, source, destination, transfer, burnTxHash) {
@@ -1573,6 +1683,14 @@ async function resumeRecoveries(recoveries) {
                     state: TRANSFER_STATES.RECOVERABLE,
                     errorMessage: errorText,
                 });
+                recordTransferFailure(transfer.id || transfer.burnTxHash, {
+                    stage: 'recovery.resume',
+                    route: `${transfer.from || 'unknown'}->${transfer.to || 'unknown'}`,
+                    state: TRANSFER_STATES.RECOVERABLE,
+                    burnTxHash: transfer.burnTxHash,
+                    productMessage: errorText,
+                    error: e,
+                });
                 log(`Resume transfer paused for ${shortHash(transfer.burnTxHash)}: ${errorText}`, 'error');
             }
         }
@@ -1959,6 +2077,11 @@ connectSolanaBtn.addEventListener('click', () => {
 document.querySelectorAll('#quantum-wallet-modal .wallet-option[data-wallet]').forEach(opt => {
     opt.addEventListener('click', async () => {
         const walletType = opt.getAttribute('data-wallet');
+        if (walletType === 'phantom') {
+            sounds.play('error');
+            log(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported, 'error');
+            return;
+        }
         closeWalletModal();
         await connectSolanaWallet(walletType);
     });
@@ -2018,7 +2141,7 @@ async function connectSolanaWallet(walletType, options = {}) {
     
     if (!provider) {
         if (!silent) {
-            alert(`${walletType} wallet not detected. Use Phantom, Solflare, Backpack, or Zerion for this route.`);
+            alert(`${walletType} wallet not detected. Backpack and Solflare are supported for Solana routes; Phantom is limited for this route.`);
         }
         return false;
     }
@@ -2179,7 +2302,7 @@ function onChainChange() {
     }
     forwardingNotice.style.display = FORWARDER_DESTINATIONS.has(destinationChainSelect.value) ? 'flex' : 'none';
     syncDestinationAddressUI();
-    stopEstimatedArrivalCountdown();
+    startEstimatedArrivalMonitor(originChainSelect.value, destinationChainSelect.value);
     updateBalances(); checkReady();
 }
 
@@ -2270,6 +2393,14 @@ recoverBurnBtn?.addEventListener('click', async () => {
                 state: TRANSFER_STATES.RECOVERABLE,
                 errorMessage: errorText,
             });
+            recordTransferFailure(recoveryId, {
+                stage: 'recovery.manual',
+                route: `${source}->${destination}`,
+                state: TRANSFER_STATES.RECOVERABLE,
+                burnTxHash,
+                productMessage: errorText,
+                error: e,
+            });
             log(`Resume transfer paused: ${errorText}`, 'error');
         }
     } finally {
@@ -2318,6 +2449,14 @@ pendingRecoveriesEl?.addEventListener('click', async (event) => {
                 status: 'burned',
                 state: TRANSFER_STATES.RECOVERABLE,
                 errorMessage: errorText,
+            });
+            recordTransferFailure(transfer.id || transfer.burnTxHash, {
+                stage: 'recovery.item',
+                route: `${transfer.from || 'unknown'}->${transfer.to || 'unknown'}`,
+                state: TRANSFER_STATES.RECOVERABLE,
+                burnTxHash: transfer.burnTxHash,
+                productMessage: errorText,
+                error: e,
             });
             log(`Resume transfer paused: ${errorText}`, 'error');
         }
@@ -2397,7 +2536,7 @@ teleportBtn.addEventListener('click', async () => {
             ? "Quantum tunnel stabilized. Circle Forwarder will complete destination mint..."
             : "Quantum tunnel stabilized. Commencing transfer..."
         );
-        startEstimatedArrivalCountdown(from, to);
+        startEstimatedArrivalMonitor(from, to);
         activeBridgeContext = {
             id: `${Date.now()}-${from}-${to}`,
             from,
@@ -2465,6 +2604,16 @@ teleportBtn.addEventListener('click', async () => {
                 state: nextState,
                 errorMessage: productMessage,
             });
+            recordTransferFailure(activeBridgeContext?.id, {
+                stage: failedStep?.name || 'bridge.result',
+                route: `${from}->${to}`,
+                state: nextState,
+                burnTxHash: activeBridgeContext?.burnTxHash || null,
+                productMessage,
+                error: stepError || failedStep?.errorMessage || failedStep,
+                sourceWallet,
+                destinationWallet,
+            });
             if (activeBridgeContext?.burnTxHash) {
                 patchPendingRecovery(activeBridgeContext.burnTxHash, {
                     status: 'burned',
@@ -2490,6 +2639,16 @@ teleportBtn.addEventListener('click', async () => {
             state: nextState,
             errorMessage: productMessage,
         });
+        recordTransferFailure(activeBridgeContext?.id, {
+            stage: 'bridge.exception',
+            route: `${from}->${to}`,
+            state: nextState,
+            burnTxHash: activeBridgeContext?.burnTxHash || null,
+            productMessage,
+            error: e,
+            sourceWallet: activeBridgeContext?.sourceWallet || null,
+            destinationWallet: activeBridgeContext?.destinationWallet || null,
+        });
         if (activeBridgeContext?.burnTxHash) {
             patchPendingRecovery(activeBridgeContext.burnTxHash, {
                 status: 'burned',
@@ -2507,7 +2666,7 @@ teleportBtn.addEventListener('click', async () => {
         });
     } finally {
         teleportBtn.classList.remove('loading');
-        stopEstimatedArrivalCountdown(finalEtaLabel);
+        finishEstimatedArrival(finalEtaLabel);
         wormhole.setWarp(false); updateBalances(); checkReady();
     }
 });
@@ -2890,7 +3049,7 @@ syncDestinationAddressUI();
 if (forwardingNotice && destinationChainSelect) {
     forwardingNotice.style.display = FORWARDER_DESTINATIONS.has(destinationChainSelect.value) ? 'flex' : 'none';
 }
-updateEstimatedArrival();
+startEstimatedArrivalMonitor(originChainSelect?.value, destinationChainSelect?.value);
 renderPendingRecoveries();
 renderRecoveryBanner();
 

@@ -9,17 +9,58 @@ import { startIrisWorker } from './iris-worker.js';
 const PORT = Number(process.env.PORT || process.env.QUANTUM_API_PORT || 8787);
 const HOST = process.env.HOST || '0.0.0.0';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+const ALLOWED_CORS_ORIGINS = CORS_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, '..', 'dist');
 
 function sendJson(res, statusCode, payload) {
     res.writeHead(statusCode, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': CORS_ORIGIN,
-        'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
     });
     res.end(JSON.stringify(payload));
+}
+
+function applyCorsHeaders(req, res) {
+    const requestOrigin = req.headers.origin;
+    const allowAny = ALLOWED_CORS_ORIGINS.includes('*');
+    const allowedOrigin = allowAny
+        ? '*'
+        : (requestOrigin && ALLOWED_CORS_ORIGINS.includes(requestOrigin)
+            ? requestOrigin
+            : (requestOrigin ? null : ALLOWED_CORS_ORIGINS[0]));
+
+    if (allowedOrigin) {
+        res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+        res.setHeader('Vary', 'Origin');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    return Boolean(allowedOrigin) || !requestOrigin;
+}
+
+function isFailureState(state) {
+    return ['failed', 'recoverable', 'already_claimed'].includes(String(state || '').toLowerCase());
+}
+
+async function captureFailureTelemetry(transfer, payload = {}, source = 'api') {
+    if (!transfer) return;
+    const state = payload.state || transfer.state;
+    const errorMessage = payload.errorMessage || payload.error_message || transfer.errorMessage;
+    if (!isFailureState(state) && !errorMessage) return;
+
+    const failureEvent = {
+        source,
+        state,
+        route: `${transfer.from || payload.from || 'unknown'}->${transfer.to || payload.to || 'unknown'}`,
+        burnTxHash: transfer.burnTxHash || payload.burnTxHash || payload.burn_tx_hash || null,
+        mintTxHash: transfer.mintTxHash || payload.mintTxHash || payload.mint_tx_hash || null,
+        errorMessage: errorMessage || null,
+    };
+    await store.appendTransferEvent(transfer.id, 'transfer.failure_captured', failureEvent);
+    console.warn('[QuantumBridge Monitoring] transfer failure captured', {
+        transferId: transfer.id,
+        ...failureEvent,
+    });
 }
 
 async function readJson(req) {
@@ -101,13 +142,15 @@ async function serveStaticAsset(req, res, url) {
 
 const server = http.createServer(async (req, res) => {
     try {
-        res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
-        res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        const corsAllowed = applyCorsHeaders(req, res);
 
         if (req.method === 'OPTIONS') {
-            res.writeHead(204);
+            res.writeHead(corsAllowed ? 204 : 403);
             res.end();
+            return;
+        }
+        if (!corsAllowed) {
+            sendJson(res, 403, { error: 'Origin not allowed' });
             return;
         }
 
@@ -116,6 +159,7 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'GET' && url.pathname === '/api/health') {
             sendJson(res, 200, {
                 ok: true,
+                version: process.env.npm_package_version || null,
                 database: store.kind,
                 dbPath: store.dbPath,
                 worker: process.env.QUANTUM_WORKER_DISABLED === '1' ? 'disabled' : 'enabled',
@@ -133,6 +177,7 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'POST' && url.pathname === '/api/transfers') {
             const body = await readJson(req);
             const transfer = await store.upsertTransfer(body);
+            await captureFailureTelemetry(transfer, body, 'api.upsert');
             sendJson(res, 201, { transfer });
             return;
         }
@@ -161,6 +206,9 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
             await store.appendTransferEvent(transfer.id, body.type || 'transfer.event', body.payload || body);
+            if (String(body.type || '').includes('failed') || String(body.type || '').includes('error')) {
+                await captureFailureTelemetry(transfer, body.payload || body, 'api.event');
+            }
             sendJson(res, 201, { ok: true });
             return;
         }
@@ -171,6 +219,7 @@ const server = http.createServer(async (req, res) => {
         if (transferId) {
             const body = await readJson(req);
             const transfer = await store.patchTransfer(transferId, body);
+            await captureFailureTelemetry(transfer, body, 'api.patch');
             sendJson(res, 200, { transfer });
             return;
         }

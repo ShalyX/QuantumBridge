@@ -137,16 +137,16 @@
 
                     <div class="route-metrics glass">
                         <div class="metric-item">
-                            <label>Quantum Confidence</label>
+                            <label>Network Health</label>
                             <div class="metric-value">
-                                <span id="confidence-score">97%</span>
-                                <div class="health-pill stable">Stable</div>
+                                <span id="confidence-score">Checking</span>
+                                <div id="route-health-pill" class="health-pill stable">Stable</div>
                             </div>
                         </div>
                         <div class="metric-divider"></div>
                         <div class="metric-item">
-                            <label>Est. Arrival</label>
-                            <div class="metric-value" id="est-arrival">~14s</div>
+                            <label>Live Time Estimate</label>
+                            <div class="metric-value" id="est-arrival">Measuring</div>
                         </div>
                     </div>
 
@@ -280,21 +280,33 @@
                 <div class="wallet-section" data-section="solana">
                     <div class="wallet-section-title">Solana Nodes</div>
                     <div class="wallet-grid">
-                        <div class="wallet-option" data-wallet="phantom">
+                        <div class="wallet-option limited" data-wallet="phantom">
                             <img src="https://cryptologos.cc/logos/phantom-phantom-logo.svg?v=025" alt="Phantom" class="wallet-icon">
-                            <span class="wallet-name">Phantom</span>
+                            <span class="wallet-copy">
+                                <span class="wallet-name">Phantom</span>
+                                <span class="wallet-support limited">Limited for CCTP routes</span>
+                            </span>
                         </div>
                         <div class="wallet-option" data-wallet="backpack">
                             <img src="https://backpack.app/favicon.ico" alt="Backpack" class="wallet-icon">
-                            <span class="wallet-name">Backpack</span>
+                            <span class="wallet-copy">
+                                <span class="wallet-name">Backpack</span>
+                                <span class="wallet-support supported">Supported</span>
+                            </span>
                         </div>
                         <div class="wallet-option" data-wallet="solflare">
                             <img src="https://cryptologos.cc/logos/solflare-solflare-logo.svg?v=025" alt="Solflare" class="wallet-icon">
-                            <span class="wallet-name">Solflare</span>
+                            <span class="wallet-copy">
+                                <span class="wallet-name">Solflare</span>
+                                <span class="wallet-support supported">Supported</span>
+                            </span>
                         </div>
                         <div class="wallet-option" data-wallet="zerion">
                             <img src="https://zerion.io/favicon.ico" alt="Zerion" class="wallet-icon">
-                            <span class="wallet-name">Zerion</span>
+                            <span class="wallet-copy">
+                                <span class="wallet-name">Zerion</span>
+                                <span class="wallet-support experimental">Wallet dependent</span>
+                            </span>
                         </div>
                     </div>
                 </div>

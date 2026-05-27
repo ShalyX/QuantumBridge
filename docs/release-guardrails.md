@@ -39,7 +39,7 @@ Use exact dependency versions from `package.json`. The Solana adapter patch in `
 
 The backend recovery service must be running for durable transfer persistence. See `docs/backend-recovery-service.md`.
 
-Production deploys should run the Render/Postgres topology in `render.yaml`: one web service, one Iris worker, and one managed Postgres database. See `docs/production-deploy-render-postgres.md`.
+Production deploys should run the Render/Postgres topology in `render.yaml`: one web service with embedded Iris polling and one managed Postgres database on Render Free. See `docs/production-deploy-render-postgres.md`.
 
 Run a release security gate:
 
@@ -55,7 +55,7 @@ Current known audit noise is moderate transitive exposure through `@solana/web3.
 | --- | --- | --- | --- | --- |
 | Solana Devnet -> Arc Testnet | Backpack | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
 | Solana Devnet -> Arc Testnet | Solflare | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
-| Solana Devnet -> Arc Testnet | Phantom | Rabby or Zerion | Chrome / Edge | Blocked in UI; use Backpack or Solflare |
+| Solana Devnet -> Arc Testnet | Phantom | Rabby or Zerion | Chrome / Edge | Limited/blocked in UI; use Backpack or Solflare |
 | Arc Testnet -> Solana Devnet | Rabby or Zerion | Backpack or Solflare | Chrome / Edge | Supported through manual destination mint or resume transfer |
 | Ethereum Sepolia -> Arc Testnet | Rabby or Zerion | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
 | Arc Testnet -> Ethereum Sepolia | Rabby or Zerion | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
@@ -70,6 +70,8 @@ Circle Forwarder is enabled only when the destination is `arc` or `ethereum`. So
 - Click `Resume all`; confirm completed or already claimed transfers leave the pending banner and show a success activity card.
 - Paste a known burn transaction into `Resume Transfers`; confirm route, attestation, and destination mint messaging stays product-facing.
 - Attempt Solana source transfer with Phantom; confirm the UI asks for Solflare or Backpack instead of exposing raw adapter errors.
+- Confirm the live time estimate updates from route/network health probes and does not count down.
+- Confirm failed bridge and recovery attempts create `transfer.failed` or `transfer.failure_captured` events in the support bundle and produce a Render log entry.
 
 ## Product Error Messages
 
@@ -77,7 +79,7 @@ Use user-facing messages for expected bridge states:
 
 - Already claimed: `This burn was already claimed.`
 - Attestation pending: `Circle attestation is not ready yet.`
-- Unsupported Solana wallet for route: `Connect Solflare or Backpack to complete this route.`
+- Unsupported Solana wallet for route: `Phantom is limited for this CCTP route. Connect Backpack or Solflare to complete it.`
 - Wallet cancellation: `Wallet approval was cancelled.`
 
 Raw SDK errors belong in the browser console only.
