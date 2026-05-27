@@ -304,6 +304,9 @@ const closeTxDetailsBtn = document.getElementById('close-tx-details');
 const txDetailsContent = document.getElementById('tx-details-content');
 const stepper = document.getElementById('teleport-stepper');
 const swapChainsBtn = document.getElementById('swap-chains');
+const estArrivalEl = document.getElementById('est-arrival');
+const activityFilterBtns = Array.from(document.querySelectorAll('.filter-btn[data-filter]'));
+const chainFilterSelect = document.getElementById('chain-filter');
 const walletModalTabs = Array.from(document.querySelectorAll('#quantum-wallet-modal .modal-tab[data-tab]'));
 const walletModalSections = Array.from(document.querySelectorAll('#quantum-wallet-modal .wallet-section[data-section]'));
 const recoveryBurnTxInput = document.getElementById('recovery-burn-tx');
@@ -403,6 +406,15 @@ const TRANSFER_STATE_LABELS = Object.freeze({
     [TRANSFER_STATES.FAILED]: 'Failed before burn',
 });
 
+const ROUTE_ETA_SECONDS = Object.freeze({
+    'arc:solana': 22,
+    'solana:arc': 28,
+    'ethereum:arc': 16,
+    'arc:ethereum': 16,
+    'ethereum:solana': 24,
+    'solana:ethereum': 30,
+});
+
 const PRODUCT_ERROR_MESSAGES = Object.freeze({
     alreadyClaimed: 'This burn was already claimed.',
     attestationPending: 'Circle attestation is not ready yet.',
@@ -421,6 +433,12 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     simulationFailed: 'The destination chain rejected this mint. Try Resume transfer again, or use a supported wallet for this route.',
     genericRecoverable: 'Transfer paused. Resume it from the recovery panel when wallets are connected.',
 });
+
+const pendingTransferSyncs = new Map();
+let transferSyncTimer = null;
+let etaTimer = null;
+let etaDeadline = 0;
+let activeEtaRoute = null;
 
 function shortHash(hash) {
     if (!hash) return 'unknown';
@@ -562,6 +580,35 @@ function normalizeBackendTransferPayload(record) {
     };
 }
 
+function queueTransferSync(record) {
+    if (!record?.id) return;
+    pendingTransferSyncs.set(record.id, normalizeBackendTransferPayload(record));
+    if (transferSyncTimer) return;
+    transferSyncTimer = window.setTimeout(() => {
+        flushQueuedTransferSyncs();
+    }, 0);
+}
+
+async function flushQueuedTransferSyncs({ useBeacon = false } = {}) {
+    if (transferSyncTimer) {
+        window.clearTimeout(transferSyncTimer);
+        transferSyncTimer = null;
+    }
+    const queued = Array.from(pendingTransferSyncs.values());
+    pendingTransferSyncs.clear();
+    if (queued.length === 0) return;
+
+    if (useBeacon && navigator.sendBeacon) {
+        for (const payload of queued) {
+            const body = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+            navigator.sendBeacon(transferApiUrl('/api/transfers'), body);
+        }
+        return;
+    }
+
+    await Promise.allSettled(queued.map(payload => syncTransferToBackend(payload, 'upsert')));
+}
+
 async function syncTransferToBackend(record, mode = 'upsert') {
     if (!record?.id) return;
     const payload = normalizeBackendTransferPayload(record);
@@ -579,11 +626,6 @@ async function syncTransferToBackend(record, mode = 'upsert') {
     } catch (error) {
         console.warn('[QuantumBridge] Transfer API sync failed; local cache remains active.', error);
     }
-}
-
-function queueTransferSync(record, mode = 'upsert') {
-    if (!record?.id) return;
-    window.setTimeout(() => syncTransferToBackend(record, mode), 0);
 }
 
 async function recordTransferEvent(transferId, type, payload = {}) {
@@ -647,7 +689,9 @@ async function syncServerTransfersForConnectedWallets() {
     const viewGeneration = walletViewGeneration;
     try {
         const results = await Promise.all(wallets.map(async wallet => {
-            const response = await fetch(transferApiUrl(`/api/transfers?wallet=${encodeURIComponent(wallet)}`));
+            const response = await fetch(transferApiUrl(`/api/transfers?wallet=${encodeURIComponent(wallet)}`), {
+                cache: 'no-store',
+            });
             if (!response.ok) throw new Error(`Transfer API ${response.status}`);
             return response.json();
         }));
@@ -659,6 +703,9 @@ async function syncServerTransfersForConnectedWallets() {
             }
         }
         mergeBackendTransfersIntoLocal(Array.from(transfersById.values()));
+        if (transfersById.size > 0) {
+            log(`Loaded ${transfersById.size} transfer${transfersById.size === 1 ? '' : 's'} from recovery history.`, 'success');
+        }
     } catch (error) {
         console.warn('[QuantumBridge] Could not load backend transfers; local cache remains active.', error);
     }
@@ -1010,6 +1057,48 @@ function syncDestinationAddressUI() {
     destinationAddressContainer?.classList.toggle('invalid', !valid);
     if (destinationAddressHint) destinationAddressHint.textContent = message;
     return valid;
+}
+
+function getRouteEtaSeconds(from = originChainSelect?.value, to = destinationChainSelect?.value) {
+    const routeKey = `${from}:${to}`;
+    if (ROUTE_ETA_SECONDS[routeKey]) return ROUTE_ETA_SECONDS[routeKey];
+    if (from === 'solana' || to === 'solana') return 28;
+    return FORWARDER_DESTINATIONS.has(to) ? 18 : 14;
+}
+
+function setEstimatedArrivalText(text) {
+    if (estArrivalEl) estArrivalEl.textContent = text;
+}
+
+function updateEstimatedArrival() {
+    if (!estArrivalEl) return;
+    if (etaDeadline > 0) {
+        const remaining = Math.max(0, Math.ceil((etaDeadline - Date.now()) / 1000));
+        if (remaining > 0) {
+            setEstimatedArrivalText(`~${remaining}s`);
+            return;
+        }
+        setEstimatedArrivalText('Finalizing');
+        return;
+    }
+    setEstimatedArrivalText(`~${getRouteEtaSeconds()}s`);
+}
+
+function startEstimatedArrivalCountdown(from, to) {
+    activeEtaRoute = { from, to };
+    etaDeadline = Date.now() + (getRouteEtaSeconds(from, to) * 1000);
+    if (etaTimer) window.clearInterval(etaTimer);
+    updateEstimatedArrival();
+    etaTimer = window.setInterval(updateEstimatedArrival, 1000);
+}
+
+function stopEstimatedArrivalCountdown(label = null) {
+    if (etaTimer) window.clearInterval(etaTimer);
+    etaTimer = null;
+    etaDeadline = 0;
+    activeEtaRoute = null;
+    if (label) setEstimatedArrivalText(label);
+    else updateEstimatedArrival();
 }
 
 function markRecoveryAlreadyMinted(recoveryKey, source, destination, transfer, burnTxHash) {
@@ -1705,6 +1794,8 @@ async function restoreWalletSessions() {
             await connectSolanaWallet(session.solana.walletType, { silent: true });
         }
     }
+
+    syncServerTransfersForConnectedWallets();
 }
 
 async function connectEvmWallet(providerDetail, options = {}) {
@@ -2088,6 +2179,7 @@ function onChainChange() {
     }
     forwardingNotice.style.display = FORWARDER_DESTINATIONS.has(destinationChainSelect.value) ? 'flex' : 'none';
     syncDestinationAddressUI();
+    stopEstimatedArrivalCountdown();
     updateBalances(); checkReady();
 }
 
@@ -2269,6 +2361,7 @@ teleportBtn.addEventListener('click', async () => {
     const from = originChainSelect.value;
     const to = destinationChainSelect.value;
     const amount = amountInput.value;
+    let finalEtaLabel = null;
     if ((from === 'solana' || to === 'solana') && solanaWalletType === 'phantom') {
         sounds.play('error');
         log(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported, "error");
@@ -2304,6 +2397,7 @@ teleportBtn.addEventListener('click', async () => {
             ? "Quantum tunnel stabilized. Circle Forwarder will complete destination mint..."
             : "Quantum tunnel stabilized. Commencing transfer..."
         );
+        startEstimatedArrivalCountdown(from, to);
         activeBridgeContext = {
             id: `${Date.now()}-${from}-${to}`,
             from,
@@ -2333,6 +2427,7 @@ teleportBtn.addEventListener('click', async () => {
 
         if (result.state === 'success') {
             sounds.play('success');
+            finalEtaLabel = 'Arrived';
             successOverlay.style.display = 'flex';
             if (activeBridgeContext?.burnTxHash) {
                 patchPendingRecovery(activeBridgeContext.burnTxHash, {
@@ -2364,6 +2459,7 @@ teleportBtn.addEventListener('click', async () => {
                 if (logsStr.includes('remote_token_messenger')) console.error("DIAGNOSIS: Destination domain unsupported on Solana Devnet.");
             }
             const productMessage = getProductErrorMessage(stepError || failedStep?.errorMessage || PRODUCT_ERROR_MESSAGES.genericRecoverable);
+            finalEtaLabel = 'Paused';
             const nextState = activeBridgeContext?.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
             patchTransferRecord(activeBridgeContext?.id, {
                 state: nextState,
@@ -2387,6 +2483,7 @@ teleportBtn.addEventListener('click', async () => {
         }
     } catch (e) {
         sounds.play('error');
+        finalEtaLabel = 'Paused';
         const productMessage = getProductErrorMessage(e);
         const nextState = activeBridgeContext?.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
         patchTransferRecord(activeBridgeContext?.id, {
@@ -2410,6 +2507,7 @@ teleportBtn.addEventListener('click', async () => {
         });
     } finally {
         teleportBtn.classList.remove('loading');
+        stopEstimatedArrivalCountdown(finalEtaLabel);
         wormhole.setWarp(false); updateBalances(); checkReady();
     }
 });
@@ -2475,6 +2573,36 @@ function getActivityExplorerChain(item) {
     return item.from || 'arc';
 }
 
+function getActivityExplorerTarget(item) {
+    const mintHash = item?.txHash || item?.mintTxHash;
+    if (mintHash) {
+        return {
+            chain: getActivityExplorerChain({ ...item, txHash: mintHash }),
+            hash: mintHash,
+            label: 'Open in explorer',
+        };
+    }
+    if (item?.burnTxHash) {
+        return {
+            chain: item.from || 'arc',
+            hash: item.burnTxHash,
+            label: 'Open burn in explorer',
+        };
+    }
+    return null;
+}
+
+function getVisibleActivities() {
+    return activityHistory.filter(item => {
+        const status = item.status || 'pending';
+        const statusMatches = currentStatusFilter === 'all' || status === currentStatusFilter;
+        const chainMatches = currentChainFilter === 'all' ||
+            item.from === currentChainFilter ||
+            item.to === currentChainFilter;
+        return statusMatches && chainMatches;
+    });
+}
+
 function openTransactionDetails(item) {
     if (!txDetailsOverlay || !txDetailsContent || !item) return;
     const from = item.from || 'unknown';
@@ -2484,9 +2612,9 @@ function openTransactionDetails(item) {
     const amount = item.amount ?? 'unknown';
     const lifecycleState = item.lifecycleState || item.state || (item.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : null);
     const lifecycleLabel = item.lifecycleLabel || (lifecycleState ? getTransferStateLabel(lifecycleState) : status);
-    const explorerChain = getActivityExplorerChain(item);
-    const explorerUrl = item.txHash ? getLink(explorerChain, item.txHash) : null;
-    const transactionLabel = item.txHash ? shortHash(item.txHash) : (item.alreadyMinted ? 'Already minted' : 'Pending');
+    const explorerTarget = getActivityExplorerTarget(item);
+    const explorerUrl = explorerTarget ? getLink(explorerTarget.chain, explorerTarget.hash) : null;
+    const transactionLabel = explorerTarget ? shortHash(explorerTarget.hash) : (item.alreadyMinted ? 'Already minted' : 'Pending');
 
     txDetailsContent.innerHTML = `
         <div class="manifest-header">
@@ -2548,7 +2676,7 @@ function openTransactionDetails(item) {
         </div>
         <div class="manifest-actions">
             ${explorerUrl
-                ? `<a class="btn btn-primary full-width" href="${explorerUrl}" target="_blank" rel="noopener">Open Explorer</a>`
+                ? `<a class="btn btn-primary full-width" href="${explorerUrl}" target="_blank" rel="noopener">${escapeHtml(explorerTarget.label)}</a>`
                 : `<button class="btn btn-glass full-width" disabled>${item.alreadyMinted ? 'Mint already completed' : 'No transaction hash yet'}</button>`}
         </div>
     `;
@@ -2645,6 +2773,7 @@ function addActivity(type, from, to, amount, status, txHash = null, extra = {}) 
         amount,
         status,
         txHash: txHash || extra.txHash || null,
+        mintTxHash: txHash || extra.mintTxHash || extra.txHash || null,
         updatedAt: new Date().toISOString(),
     };
 
@@ -2669,13 +2798,19 @@ function addActivity(type, from, to, amount, status, txHash = null, extra = {}) 
 function renderActivity() {
     const list = document.getElementById('activity-list');
     if (!list) return;
+    const visibleActivities = getVisibleActivities();
     if (activityHistory.length === 0) {
         list.innerHTML = '<div class="empty-state">No recent activity detected.</div>';
         return;
     }
-    list.innerHTML = activityHistory.map(item => {
+    if (visibleActivities.length === 0) {
+        list.innerHTML = '<div class="empty-state">No activity matches these filters.</div>';
+        return;
+    }
+    list.innerHTML = visibleActivities.map(item => {
         const lifecycleState = item.lifecycleState || item.state || (item.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : null);
         const lifecycleLabel = item.lifecycleLabel || (lifecycleState ? getTransferStateLabel(lifecycleState) : (item.status || 'pending'));
+        const explorerTarget = getActivityExplorerTarget(item);
         return `
             <div class="activity-item" data-activity-id="${escapeHtml(item.id)}" role="button" tabindex="0" aria-label="View ${escapeHtml(item.type || 'transaction')} details">
                 <div class="activity-badge ${escapeHtml(item.status || 'pending')}">${escapeHtml((item.type || 'T').slice(0, 1).toUpperCase())}</div>
@@ -2687,8 +2822,8 @@ function renderActivity() {
                     ${item.burnTxHash
                         ? `<button class="tx-link copy-burn-btn" type="button" data-copy-burn="${escapeHtml(item.burnTxHash)}">Copy burn tx</button>`
                         : ''}
-                    ${item.txHash
-                        ? `<a class="tx-link" href="${getLink(getActivityExplorerChain(item), item.txHash)}" target="_blank" rel="noopener">Explorer</a>`
+                    ${explorerTarget
+                        ? `<a class="tx-link" href="${getLink(explorerTarget.chain, explorerTarget.hash)}" target="_blank" rel="noopener">Open in explorer</a>`
                         : `<span class="tx-link">${item.alreadyMinted ? 'Completed' : 'Details'}</span>`}
                 </div>
             </div>
@@ -2720,6 +2855,30 @@ document.getElementById('activity-list')?.addEventListener('keydown', (event) =>
     const item = activityHistory.find(entry => String(entry.id) === itemEl.dataset.activityId);
     openTransactionDetails(item);
 });
+
+activityFilterBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        currentStatusFilter = btn.dataset.filter || 'all';
+        activityFilterBtns.forEach(item => item.classList.toggle('active', item === btn));
+        renderActivity();
+    });
+});
+
+chainFilterSelect?.addEventListener('change', () => {
+    currentChainFilter = chainFilterSelect.value || 'all';
+    renderActivity();
+});
+
+window.addEventListener('pagehide', () => {
+    flushQueuedTransferSyncs({ useBeacon: true });
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+        flushQueuedTransferSyncs({ useBeacon: true });
+    }
+});
+
 clearLegacyTransferBrowserStorage();
 unlockInterruptedRecoveries();
 normalizeAlreadyClaimedRecoveries();
@@ -2731,6 +2890,7 @@ syncDestinationAddressUI();
 if (forwardingNotice && destinationChainSelect) {
     forwardingNotice.style.display = FORWARDER_DESTINATIONS.has(destinationChainSelect.value) ? 'flex' : 'none';
 }
+updateEstimatedArrival();
 renderPendingRecoveries();
 renderRecoveryBanner();
 
