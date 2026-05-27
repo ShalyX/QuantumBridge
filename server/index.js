@@ -1,0 +1,196 @@
+import { createReadStream, existsSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { store } from './store.js';
+import { startIrisWorker } from './iris-worker.js';
+
+const PORT = Number(process.env.PORT || process.env.QUANTUM_API_PORT || 8787);
+const HOST = process.env.HOST || '0.0.0.0';
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.resolve(__dirname, '..', 'dist');
+
+function sendJson(res, statusCode, payload) {
+    res.writeHead(statusCode, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': CORS_ORIGIN,
+        'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    res.end(JSON.stringify(payload));
+}
+
+async function readJson(req) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    if (chunks.length === 0) return {};
+    const text = Buffer.concat(chunks).toString('utf8');
+    if (!text) return {};
+    try {
+        return JSON.parse(text);
+    } catch {
+        const error = new Error('Request body must be valid JSON');
+        error.statusCode = 400;
+        throw error;
+    }
+}
+
+function getTransferIdFromPath(pathname, suffix = '') {
+    const prefix = '/api/transfers/';
+    if (!pathname.startsWith(prefix)) return null;
+    const rest = pathname.slice(prefix.length);
+    if (suffix && !rest.endsWith(suffix)) return null;
+    const rawId = suffix ? rest.slice(0, -suffix.length) : rest;
+    if (!rawId || rawId.includes('/')) return null;
+    return decodeURIComponent(rawId);
+}
+
+function contentTypeFor(filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+    return {
+        '.css': 'text/css; charset=utf-8',
+        '.html': 'text/html; charset=utf-8',
+        '.ico': 'image/x-icon',
+        '.js': 'application/javascript; charset=utf-8',
+        '.json': 'application/json; charset=utf-8',
+        '.map': 'application/json; charset=utf-8',
+        '.png': 'image/png',
+        '.svg': 'image/svg+xml',
+        '.webp': 'image/webp',
+    }[ext] || 'application/octet-stream';
+}
+
+async function serveStaticAsset(req, res, url) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return false;
+    if (!existsSync(distDir)) return false;
+
+    const decodedPath = decodeURIComponent(url.pathname);
+    const requestedPath = decodedPath === '/' ? '/index.html' : decodedPath;
+    const safePath = path.normalize(requestedPath).replace(/^(\.\.[/\\])+/, '');
+    let filePath = path.resolve(distDir, `.${safePath}`);
+    if (!filePath.startsWith(distDir)) {
+        sendJson(res, 400, { error: 'Invalid path' });
+        return true;
+    }
+
+    try {
+        const fileStat = await stat(filePath);
+        if (fileStat.isDirectory()) filePath = path.join(filePath, 'index.html');
+    } catch {
+        if (requestedPath.startsWith('/assets/')) return false;
+        filePath = path.join(distDir, 'index.html');
+    }
+
+    if (!existsSync(filePath)) return false;
+    res.writeHead(200, {
+        'Content-Type': contentTypeFor(filePath),
+        'Cache-Control': filePath.includes(`${path.sep}assets${path.sep}`)
+            ? 'public, max-age=31536000, immutable'
+            : 'no-cache',
+    });
+    if (req.method === 'HEAD') {
+        res.end();
+        return true;
+    }
+    createReadStream(filePath).pipe(res);
+    return true;
+}
+
+const server = http.createServer(async (req, res) => {
+    try {
+        res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
+        res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+        if (req.method === 'OPTIONS') {
+            res.writeHead(204);
+            res.end();
+            return;
+        }
+
+        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+        if (req.method === 'GET' && url.pathname === '/api/health') {
+            sendJson(res, 200, {
+                ok: true,
+                database: store.kind,
+                dbPath: store.dbPath,
+                time: new Date().toISOString(),
+            });
+            return;
+        }
+
+        if (req.method === 'GET' && url.pathname === '/api/transfers') {
+            const wallet = url.searchParams.get('wallet');
+            sendJson(res, 200, { transfers: await store.listTransfers({ wallet }) });
+            return;
+        }
+
+        if (req.method === 'POST' && url.pathname === '/api/transfers') {
+            const body = await readJson(req);
+            const transfer = await store.upsertTransfer(body);
+            sendJson(res, 201, { transfer });
+            return;
+        }
+
+        const supportId = req.method === 'GET'
+            ? getTransferIdFromPath(url.pathname, '/support-bundle')
+            : null;
+        if (supportId) {
+            const bundle = await store.getSupportBundle(supportId);
+            if (!bundle) {
+                sendJson(res, 404, { error: 'Transfer not found' });
+                return;
+            }
+            sendJson(res, 200, bundle);
+            return;
+        }
+
+        const eventId = req.method === 'POST'
+            ? getTransferIdFromPath(url.pathname, '/events')
+            : null;
+        if (eventId) {
+            const body = await readJson(req);
+            const transfer = await store.getTransfer(eventId);
+            if (!transfer) {
+                sendJson(res, 404, { error: 'Transfer not found' });
+                return;
+            }
+            await store.appendTransferEvent(transfer.id, body.type || 'transfer.event', body.payload || body);
+            sendJson(res, 201, { ok: true });
+            return;
+        }
+
+        const transferId = req.method === 'PATCH'
+            ? getTransferIdFromPath(url.pathname)
+            : null;
+        if (transferId) {
+            const body = await readJson(req);
+            const transfer = await store.patchTransfer(transferId, body);
+            sendJson(res, 200, { transfer });
+            return;
+        }
+
+        if (await serveStaticAsset(req, res, url)) return;
+
+        sendJson(res, 404, { error: 'Not found' });
+    } catch (error) {
+        const statusCode = error.statusCode || 500;
+        sendJson(res, statusCode, {
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+});
+
+server.listen(PORT, HOST, () => {
+    console.log(`[QuantumBridge API] listening on http://${HOST}:${PORT}`);
+    console.log(`[QuantumBridge API] db: ${store.dbPath}`);
+});
+
+if (process.env.QUANTUM_WORKER_DISABLED !== '1') {
+    startIrisWorker(store);
+    console.log('[QuantumBridge Worker] Circle Iris polling enabled');
+}

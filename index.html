@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantumBridge | Cross-Chain USDC Teleport</title>
+    <meta name="description" content="Premium cross-chain USDC teleportation portal for the agentic economy.">
+    <link rel="stylesheet" href="src/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body class="dark-theme">
+    <canvas id="wormhole-canvas"></canvas>
+    
+    <div class="app-container">
+        <header>
+            <div class="logo">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" stroke-width="2" stroke-dasharray="4 4"/>
+                    <path d="M12 18C15.3137 18 18 15.3137 18 12C18 8.68629 15.3137 6 12 6C8.68629 6 6 8.68629 6 12C6 15.3137 8.68629 18 12 18Z" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/>
+                    <circle cx="12" cy="12" r="2" fill="currentColor"/>
+                </svg>
+                <h1>Quantum<span>Bridge</span></h1>
+            </div>
+            <div class="header-actions">
+                <button id="theme-toggle" title="Toggle Theme">
+                    <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                    <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                </button>
+                <div class="wallet-status">
+                    <button id="connect-evm" class="btn btn-glass">
+                        <img src="https://cryptologos.cc/logos/ethereum-eth-logo.svg?v=025" alt="EVM" width="16">
+                        <span>Connect EVM</span>
+                    </button>
+                    <button id="connect-solana" class="btn btn-glass">
+                        <img src="https://cryptologos.cc/logos/solana-sol-logo.svg?v=025" alt="Solana" width="16">
+                        <span>Connect Solana</span>
+                    </button>
+                    <button id="disconnect-btn" class="btn btn-glass disconnect-icon-btn" style="display: none;" title="Disconnect Fleet">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <div class="bridge-card glass">
+                <div class="card-header">
+                    <h2>Teleport USDC</h2>
+                    <p>Sub-second cross-chain settlement</p>
+                </div>
+
+                <div class="transfer-grid">
+                    <div class="transfer-node origin">
+                        <label>Origin Node</label>
+                        <select id="origin-chain">
+                            <option value="arc">Arc Network</option>
+                            <option value="ethereum">Ethereum Sepolia</option>
+                            <option value="solana">Solana Devnet</option>
+                        </select>
+                        <div class="balance-info">
+                            <span>Balance: <span id="origin-balance">0.00</span> USDC</span>
+                            <button id="refresh-balances" class="refresh-mini" title="Refresh Balances">🔄</button>
+                        </div>
+                    </div>
+
+                    <div class="teleport-icon" id="swap-chains">
+                        <div class="pulse-ring"></div>
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; color: #ffffff;">
+                            <path d="M7 16L3 12L7 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M17 8L21 12L17 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+
+                    <div class="transfer-node destination">
+                        <label>Destination Node</label>
+                        <select id="destination-chain">
+                            <option value="solana" selected>Solana Devnet</option>
+                            <option value="arc">Arc Network</option>
+                            <option value="ethereum">Ethereum Sepolia</option>
+                        </select>
+                        <div class="balance-info">
+                            <span>Balance: <span id="dest-balance">0.00</span> USDC</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="amount-input-container">
+                    <label>Amount to Teleport</label>
+                    <div class="input-wrapper">
+                        <input type="number" id="amount" placeholder="0.00" min="0" step="0.01">
+                        <span class="currency-tag">USDC</span>
+                    </div>
+                    <div class="amount-presets">
+                        <button class="preset-btn" data-value="10">10</button>
+                        <button class="preset-btn" data-value="50">50</button>
+                        <button class="preset-btn" data-value="100">100</button>
+                        <button class="preset-btn" id="max-btn">MAX</button>
+                    </div>
+                </div>
+
+                <div class="destination-address-container">
+                    <label for="destination-address">Destination Wallet</label>
+                    <div class="input-wrapper compact">
+                        <input type="text" id="destination-address" placeholder="Use connected destination wallet">
+                    </div>
+                    <small id="destination-address-hint">Leave blank to receive with your connected wallet.</small>
+                </div>
+
+                <div class="forwarding-notice" id="forwarding-notice">
+                    <div class="notice-icon">⚡</div>
+                    <div class="notice-text">
+                        <strong>Gasless Arrival Enabled</strong>
+                        <p>Circle Forwarder will complete the destination mint. No destination gas required.</p>
+                    </div>
+                </div>
+
+                <div class="stepper" id="teleport-stepper">
+                    <div class="step" id="step-1">
+                        <div class="step-icon">1</div>
+                        <span class="step-label">Approve</span>
+                    </div>
+                    <div class="step" id="step-2">
+                        <div class="step-icon">2</div>
+                        <span class="step-label">Initiate</span>
+                    </div>
+                    <div class="step" id="step-3">
+                        <div class="step-icon">3</div>
+                        <span class="step-label">Attest</span>
+                    </div>
+                    <div class="step" id="step-4">
+                        <div class="step-icon">4</div>
+                        <span class="step-label">Complete</span>
+                    </div>
+                </div>
+
+                    <div class="route-metrics glass">
+                        <div class="metric-item">
+                            <label>Quantum Confidence</label>
+                            <div class="metric-value">
+                                <span id="confidence-score">97%</span>
+                                <div class="health-pill stable">Stable</div>
+                            </div>
+                        </div>
+                        <div class="metric-divider"></div>
+                        <div class="metric-item">
+                            <label>Est. Arrival</label>
+                            <div class="metric-value" id="est-arrival">~14s</div>
+                        </div>
+                    </div>
+
+                <button id="teleport-btn" class="btn btn-primary btn-large" disabled>
+                    <span class="btn-text">Initiate Teleportation</span>
+                    <div class="btn-loader"></div>
+                </button>
+
+                <div class="recovery-panel glass">
+                    <div id="recovery-banner" class="recovery-banner" hidden>
+                        <div>
+                            <strong>Resume transfer available</strong>
+                            <span id="recovery-banner-text">A transfer is ready to continue after source burn.</span>
+                        </div>
+                        <button id="resume-all-recoveries" class="btn btn-glass btn-sm">Resume all</button>
+                    </div>
+                    <div class="recovery-header">
+                        <div>
+                            <h3>Resume Transfers</h3>
+                            <p>Continue a source burn through attestation and destination mint.</p>
+                        </div>
+                    </div>
+                    <div class="recovery-route-grid">
+                        <div class="recovery-route-field">
+                            <label for="recovery-source-chain">Source</label>
+                            <select id="recovery-source-chain">
+                                <option value="solana">Solana Devnet</option>
+                                <option value="arc">Arc Network</option>
+                                <option value="ethereum">Ethereum Sepolia</option>
+                            </select>
+                        </div>
+                        <div class="recovery-route-field">
+                            <label for="recovery-destination-chain">Destination</label>
+                            <select id="recovery-destination-chain">
+                                <option value="arc" selected>Arc Network</option>
+                                <option value="ethereum">Ethereum Sepolia</option>
+                                <option value="solana">Solana Devnet</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="recovery-input-row">
+                        <input type="text" id="recovery-burn-tx" placeholder="Source burn transaction hash or signature">
+                        <button id="recover-burn-btn" class="btn btn-glass btn-sm">Resume</button>
+                    </div>
+                    <div id="pending-recoveries" class="pending-recoveries"></div>
+                </div>
+            </div>
+
+            <div class="status-console glass">
+                <div class="console-header">
+                    <h3>Teleportation Status</h3>
+                    <div class="live-indicator">
+                        <span class="dot"></span> LIVE
+                    </div>
+                </div>
+                <div id="console-logs" class="console-body">
+                    <div class="log-entry system">System initialized. Awaiting user connection...</div>
+                </div>
+            </div>
+
+            <div class="activity-portal glass">
+                <div class="portal-header">
+                    <div class="portal-title-group">
+                        <h3>Activity Portal</h3>
+                        <div class="portal-filters">
+                            <button class="filter-btn active" data-filter="all">All</button>
+                            <button class="filter-btn" data-filter="success">Success</button>
+                            <button class="filter-btn" data-filter="pending">Pending</button>
+                            <select id="chain-filter" class="filter-select">
+                                <option value="all">All Chains</option>
+                                <option value="arc">Arc</option>
+                                <option value="solana">Solana</option>
+                                <option value="ethereum">Ethereum</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button id="clear-activity" class="clear-btn">Clear History</button>
+                </div>
+                <div id="activity-list" class="portal-body">
+                    <div class="empty-state">No recent activity detected.</div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <div class="footer-info">
+                <span>Network Status: <span class="status-ok">Operational</span></span>
+                <span class="divider">|</span>
+                <span>Powered by Circle CCTP & App Kit</span>
+            </div>
+            <div class="footer-links">
+                <a href="#">Docs</a>
+                <a href="#">Explorer</a>
+            </div>
+        </footer>
+    </div>
+
+    <div id="success-overlay" class="overlay">
+        <div class="overlay-content">
+            <div class="success-icon">✨</div>
+            <h2>Teleportation Successful</h2>
+            <p>Your USDC has successfully traversed the quantum tunnel.</p>
+            <button id="close-overlay" class="btn btn-primary">Return to Console</button>
+        </div>
+    </div>
+
+    <!-- Unified Quantum Wallet Linker -->
+    <div id="quantum-wallet-modal" class="overlay">
+        <div class="modal-content" role="dialog" aria-modal="true" aria-label="Connect wallets">
+            <div class="modal-header">
+                <h2>Link Quantum Fleet</h2>
+                <button id="close-quantum-modal" class="close-modal">&times;</button>
+            </div>
+
+            <div class="modal-tabs" role="tablist" aria-label="Wallet type">
+                <button class="modal-tab active" data-tab="evm" role="tab" aria-selected="true">EVM</button>
+                <button class="modal-tab" data-tab="solana" role="tab" aria-selected="false">Solana</button>
+            </div>
+            
+            <div class="wallet-sections">
+                <!-- EVM Nodes -->
+                <div class="wallet-section" data-section="evm">
+                    <div class="wallet-section-title">EVM Nodes</div>
+                    <div id="evm-wallet-list" class="wallet-grid">
+                        <!-- Discovered EVM wallets injected here -->
+                    </div>
+                </div>
+
+                <!-- Solana Nodes -->
+                <div class="wallet-section" data-section="solana">
+                    <div class="wallet-section-title">Solana Nodes</div>
+                    <div class="wallet-grid">
+                        <div class="wallet-option" data-wallet="phantom">
+                            <img src="https://cryptologos.cc/logos/phantom-phantom-logo.svg?v=025" alt="Phantom" class="wallet-icon">
+                            <span class="wallet-name">Phantom</span>
+                        </div>
+                        <div class="wallet-option" data-wallet="backpack">
+                            <img src="https://backpack.app/favicon.ico" alt="Backpack" class="wallet-icon">
+                            <span class="wallet-name">Backpack</span>
+                        </div>
+                        <div class="wallet-option" data-wallet="solflare">
+                            <img src="https://cryptologos.cc/logos/solflare-solflare-logo.svg?v=025" alt="Solflare" class="wallet-icon">
+                            <span class="wallet-name">Solflare</span>
+                        </div>
+                        <div class="wallet-option" data-wallet="zerion">
+                            <img src="https://zerion.io/favicon.ico" alt="Zerion" class="wallet-icon">
+                            <span class="wallet-name">Zerion</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="tx-details-overlay" class="overlay">
+        <div class="overlay-content tx-detail-card glass">
+            <button id="close-tx-details" class="close-btn floating-close">&times;</button>
+            <div id="tx-details-content">
+                <!-- Dynamic Content manages all layout -->
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="src/main.js"></script>
+</body>
+</html>

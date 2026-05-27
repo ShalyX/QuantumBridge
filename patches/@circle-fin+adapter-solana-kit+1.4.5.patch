@@ -1,0 +1,345 @@
+diff --git a/node_modules/@circle-fin/adapter-solana-kit/index.cjs b/node_modules/@circle-fin/adapter-solana-kit/index.cjs
+index 3109e76..b476629 100644
+--- a/node_modules/@circle-fin/adapter-solana-kit/index.cjs
++++ b/node_modules/@circle-fin/adapter-solana-kit/index.cjs
+@@ -15089,12 +15089,15 @@ class SolanaKitAdapter extends SolanaBaseAdapter {
+             // Create dummy signature (64 zero bytes) with the correct branded type
+             const dummySignature = new Uint8Array(64);
+             // Build signatures map with dummy signatures for all required signers
+-            const signatures = {};
++            const signatures = { ...compiled.signatures };
+             signatures[signer.address] = dummySignature;
+-            // Add dummy signatures for additional signers
+             for (const additionalSigner of additionalSigners) {
+                 signatures[additionalSigner.address] = dummySignature;
+             }
++            Object.keys(signatures).forEach(key => {
++                if (signatures[key] === null) signatures[key] = dummySignature;
++            });
++            console.log("%c[SolanaKitAdapter CJS] Simulating with sigs:", "color: orange; font-weight: bold;", Object.keys(signatures));
+             // Create transaction with dummy signatures for simulation.
+             // The `signatures` object is now type-compatible with the expected `Transaction` type.
+             const signedTransaction = {
+diff --git a/node_modules/@circle-fin/adapter-solana-kit/index.mjs b/node_modules/@circle-fin/adapter-solana-kit/index.mjs
+index e3311c4..37f05ec 100644
+--- a/node_modules/@circle-fin/adapter-solana-kit/index.mjs
++++ b/node_modules/@circle-fin/adapter-solana-kit/index.mjs
+@@ -21,7 +21,7 @@ import { hexlify, hexZeroPad } from '@ethersproject/bytes';
+ import { getAddress } from '@ethersproject/address';
+ import bs58 from 'bs58';
+ import { formatUnits as formatUnits$1 } from '@ethersproject/units';
+-import { PublicKey, LAMPORTS_PER_SOL, TransactionInstruction, SystemProgram, Keypair, VersionedTransaction } from '@solana/web3.js';
++import { PublicKey, LAMPORTS_PER_SOL, TransactionInstruction, SystemProgram, Keypair, VersionedMessage, VersionedTransaction } from '@solana/web3.js';
+ import { BN } from 'bn.js';
+ import { Program, utils } from '@coral-xyz/anchor';
+ import { ed25519 } from '@noble/curves/ed25519';
+@@ -8168,6 +8168,10 @@ function throwSimulationError(walletInfo, solRequirements, logs, errorObj) {
+         errorString = String(errorObj);
+     }
+     const fullLogText = Array.isArray(logs) ? logs.join('\n') : String(logs);
++    console.group("%c[SolanaKitAdapter] Simulation Failure Details", "color: #ff4d4d; font-weight: bold;");
++    console.log("Error Object:", errorString);
++    console.log("Execution Logs:\n", fullLogText);
++    console.groupEnd();
+     const hasInsufficientSol = BigInt(walletInfo.currentBalanceLamports) <
+         solRequirements.totalRequiredLamports;
+     // Check for insufficient SOL balance (highest priority)
+@@ -13550,6 +13554,7 @@ async function addSignTransactionsSignature(signer, compiled, currentSignatures)
+     if (result?.[0]) {
+         const signatureMap = result[0];
+         const signature = signatureMap[signer.address];
++        console.log(`[SolanaKitAdapter] Collected signature for ${signer.address}:`, !!signature);
+         if (signature) {
+             return {
+                 ...currentSignatures,
+@@ -15080,15 +15085,28 @@ class SolanaKitAdapter extends SolanaBaseAdapter {
+             // We can use dummy signatures (64-byte zero arrays) instead of calling the wallet.
+             // This avoids unnecessary wallet interactions and speeds up simulation.
+             const compiled = compileTransaction(transactionMessage);
++            const requiredCount = Object.keys(compiled.signatures).length;
++            console.log("[SolanaKitAdapter] Required signatures:", requiredCount);
+             // Create dummy signature (64 zero bytes) with the correct branded type
+             const dummySignature = new Uint8Array(64);
+             // Build signatures map with dummy signatures for all required signers
+-            const signatures = {};
++            // Create a copy of the signatures dictionary from the compiled transaction
++            const signatures = { ...compiled.signatures };
++            // Fill in dummy signatures for the fee payer and all additional signers
+             signatures[signer.address] = dummySignature;
+-            // Add dummy signatures for additional signers
+             for (const additionalSigner of additionalSigners) {
+                 signatures[additionalSigner.address] = dummySignature;
+             }
++            
++            // Ensure all null signatures are replaced with dummy signatures to satisfy the RPC
++            Object.keys(signatures).forEach(key => {
++                if (signatures[key] === null) {
++                    signatures[key] = dummySignature;
++                }
++            });
++            const sigCount = Object.keys(signatures).length;
++            console.log(`[SolanaKitAdapter] Simulation: Signatures=${sigCount}, Required=${requiredCount}`);
++            
+             // Create transaction with dummy signatures for simulation.
+             // The `signatures` object is now type-compatible with the expected `Transaction` type.
+             const signedTransaction = {
+@@ -15108,11 +15126,14 @@ class SolanaKitAdapter extends SolanaBaseAdapter {
+             // Check for simulation errors
+             if (simulationResult.value.err) {
+                 const logs = simulationResult.value.logs ?? [];
++                console.log("%c[SolanaKitAdapter] Simulation Failed!", "color: #ff4d4d; font-weight: bold;");
++                console.log("[SolanaKitAdapter] Simulation Logs:", logs);
+                 const errorObj = simulationResult.value.err;
+                 await handleSimulationError(rpc, signer, instructions, logs, errorObj);
+             }
+         }
+         catch (error) {
++            console.error("[SolanaKitAdapter] Simulation RPC Error:", error);
+             // If already a KitError (from handleSimulationError), don't re-wrap
+             if (error instanceof KitError) {
+                 throw error;
+@@ -15135,6 +15156,12 @@ class SolanaKitAdapter extends SolanaBaseAdapter {
+             const transactionMessage = await this.buildTransactionMessage(rpc, signer, instructions, computeUnitLimit, addressesByLookupTable);
+             // Sign with the fee payer (already embedded in transaction message)
+             let signedTransaction = await partiallySignTransactionMessageWithSigners(transactionMessage);
++            // Fallback: If automatic signing skipped the fee payer (common with custom providers), sign manually
++            if (signedTransaction.signatures[signer.address] === null && typeof signer.signTransactions === 'function') {
++                console.log("[SolanaKitAdapter] Fee payer signature missing, forcing manual signing for:", signer.address);
++                const signedTxs = await signer.signTransactions([signedTransaction]);
++                signedTransaction = signedTxs[0];
++            }
+             // For additional signers, we need to manually add their signatures
+             if (additionalSigners.length > 0) {
+                 const compiled = compileTransaction(transactionMessage);
+@@ -15144,10 +15171,23 @@ class SolanaKitAdapter extends SolanaBaseAdapter {
+                     signatures,
+                 };
+             }
++            // Normalize signatures to exactly the required signer set (in order) before encoding the
++            // wire transaction. Some wallets/flows may leave extra signature entries in the map,
++            // which produces an invalid transaction wire format that Solana RPC rejects.
++            {
++                const compiled = compileTransaction(transactionMessage);
++                const requiredSignerAddresses = Object.keys(compiled.signatures);
++                const normalized = {};
++                for (const addr of requiredSignerAddresses) {
++                    normalized[addr] = signedTransaction.signatures[addr] ?? null;
++                }
++                signedTransaction = { ...signedTransaction, signatures: normalized };
++            }
+             // Get signature for return
+             const signature = getSignatureFromTransaction(signedTransaction);
+             // Submit to network using proper wire transaction encoding
+             const wireTransaction = getBase64EncodedWireTransaction(signedTransaction);
++            console.log("%c[SolanaKitAdapter] Submitting Wire Transaction:", "color: #33cc33; font-weight: bold;", wireTransaction);
+             await rpc.sendTransaction(wireTransaction, { encoding: 'base64' }).send();
+             // Wait for transaction confirmation to match original adapter behavior
+             const confirmationResult = await this.waitForTransaction(signature, {
+@@ -15777,24 +15817,70 @@ const createSolanaKitAdapterFromProvider = (params) => {
+  */
+ async function signTransactionsWithProvider(transactions, provider) {
+     const signatures = [];
++    const toWalletVersionedTransaction = (tx) => {
++        const wire = getBase64EncodedWireTransaction(tx);
++        const bytes = new Uint8Array(Buffer.from(wire, 'base64'));
++        try {
++            return VersionedTransaction.deserialize(bytes);
++        }
++        catch (e) {
++            // Fallback: some transactions include a signature vector length that doesn't match
++            // the message header's required signatures. Wallets typically only need the message
++            // and an appropriately-sized signatures array.
++            // Wire format: shortvec(sigCount) + sigCount*64 + versioned message bytes
++            let sigCount = 0;
++            let size = 0;
++            while (true) {
++                const b = bytes[size];
++                sigCount |= (b & 0x7f) << (size * 7);
++                size += 1;
++                if ((b & 0x80) === 0)
++                    break;
++                if (size > 3)
++                    throw e;
++            }
++            const messageOffset = size + (sigCount * 64);
++            if (messageOffset >= bytes.length)
++                throw e;
++            const message = VersionedMessage.deserialize(bytes.slice(messageOffset));
++            const required = message.header.numRequiredSignatures;
++            const rebuilt = new VersionedTransaction(message);
++            rebuilt.signatures = Array.from({ length: required }, () => new Uint8Array(64));
++            return rebuilt;
++        }
++    };
++    // Ensure all transactions have full signature arrays (padded with zeros if null)
++    // to satisfy legacy wallet deserializers (like Phantom/web3.js)
++    const paddedTransactions = transactions.map(tx => {
++        const paddedSignatures = { ...tx.signatures };
++        Object.keys(paddedSignatures).forEach(key => {
++            if (paddedSignatures[key] === null) {
++                paddedSignatures[key] = new Uint8Array(64);
++            }
++        });
++        return Object.freeze({
++            ...tx,
++            signatures: Object.freeze(paddedSignatures),
++        });
++    });
+     // Handle batch signing if provider supports it and we have multiple transactions
+-    if (provider.signAllTransactions && transactions.length > 1) {
+-        // Convert transactions to wire format (base64 strings)
+-        const wireTransactions = transactions.map((kitTransaction) => getBase64EncodedWireTransaction(kitTransaction));
+-        // Most wallets accept base64 strings or can deserialize them internally
+-        const signedTransactions = await provider.signAllTransactions(wireTransactions);
++    if (provider.signAllTransactions && paddedTransactions.length > 1) {
++        // Convert transactions to @solana/web3.js VersionedTransaction objects
++        const walletTransactions = paddedTransactions.map((tx) => {
++            return toWalletVersionedTransaction(tx);
++        });
++        const signedTransactions = await provider.signAllTransactions(walletTransactions);
+         for (const [index, signedTx] of signedTransactions.entries()) {
+-            const signature = extractSignatureFromWalletResponse(signedTx, index);
++            const signature = extractSignatureFromWalletResponse(signedTx, index, walletTransactions[index], provider.address);
+             signatures.push(signature);
+         }
+     }
+     else {
+         // Handle single transaction signing
+-        for (const [index, kitTransaction] of transactions.entries()) {
+-            const wireTransaction = getBase64EncodedWireTransaction(kitTransaction);
+-            // Pass base64 string to wallet - most wallets can handle this format
+-            const signedTx = await provider.signTransaction(wireTransaction);
+-            const signature = extractSignatureFromWalletResponse(signedTx, index);
++        for (const [index, tx] of paddedTransactions.entries()) {
++            const walletTransaction = toWalletVersionedTransaction(tx);
++            const signedTx = await provider.signTransaction(walletTransaction);
++            const signature = extractSignatureFromWalletResponse(signedTx, index, walletTransaction, provider.address);
+             signatures.push(signature);
+         }
+     }
+@@ -15810,10 +15896,16 @@ async function signTransactionsWithProvider(transactions, provider) {
+  *
+  * @param response - The wallet provider response
+  * @param index - Transaction index for error reporting
++ * @param transaction - Original wallet transaction, used to find the signer slot
++ * @param signerAddress - Connected wallet address
+  * @returns The extracted signature bytes
+  */
+-function extractSignatureFromWalletResponse(response, index) {
++function extractSignatureFromWalletResponse(response, index, transaction, signerAddress) {
+     try {
++        const signerSignature = tryExtractForSigner(response, transaction, signerAddress);
++        if (signerSignature) {
++            return signerSignature;
++        }
+         const extractors = [
+             tryExtractFromObject,
+             tryExtractFromUint8Array,
+@@ -15833,22 +15925,48 @@ function extractSignatureFromWalletResponse(response, index) {
+         throw new Error(`Failed to extract signature from wallet response for transaction ${txIndex}: ${errorMessage}`);
+     }
+ }
++function tryExtractForSigner(response, transaction, signerAddress) {
++    if (!response || typeof response !== 'object' || !Array.isArray(response.signatures)) {
++        return null;
++    }
++    const message = response.message ?? transaction?.message;
++    const accountKeys = message?.staticAccountKeys ?? message?.accountKeys;
++    if (!accountKeys || !signerAddress) {
++        return null;
++    }
++    const signerIndex = accountKeys.findIndex((key) => {
++        const value = typeof key === 'string' ? key : (key?.toBase58?.() ?? key?.toString?.());
++        return value === signerAddress;
++    });
++    if (signerIndex === -1) {
++        return null;
++    }
++    const signature = response.signatures[signerIndex];
++    if (signature?.length === 64 && Array.from(signature).some((byte) => byte !== 0)) {
++        return new Uint8Array(signature);
++    }
++    return null;
++}
+ function tryExtractFromObject(response) {
+     if (!response || typeof response !== 'object')
+         return null;
+     const obj = response;
+     // Check signatures array
+-    if (obj.signatures?.[0]?.length === 64) {
+-        return new Uint8Array(obj.signatures[0]);
++    if (Array.isArray(obj.signatures)) {
++        for (const signature of obj.signatures) {
++            if (signature?.length === 64 && Array.from(signature).some((byte) => byte !== 0)) {
++                return new Uint8Array(signature);
++            }
++        }
+     }
+     // Check single signature property
+-    if (obj.signature?.length === 64) {
++    if (obj.signature?.length === 64 && Array.from(obj.signature).some((byte) => byte !== 0)) {
+         return new Uint8Array(obj.signature);
+     }
+     return null;
+ }
+ function tryExtractFromUint8Array(response) {
+-    if (response instanceof Uint8Array && response.length === 64) {
++    if (response instanceof Uint8Array && response.length === 64 && response.some((byte) => byte !== 0)) {
+         return response;
+     }
+     return null;
+@@ -15856,8 +15974,20 @@ function tryExtractFromUint8Array(response) {
+ function tryExtractFromBase64(response) {
+     if (typeof response === 'string') {
+         const decoded = Buffer.from(response, 'base64');
++        try {
++            const tx = VersionedTransaction.deserialize(new Uint8Array(decoded));
++            for (const signature of tx.signatures) {
++                if (signature?.length === 64 && signature.some((byte) => byte !== 0)) {
++                    return new Uint8Array(signature);
++                }
++            }
++        }
++        catch {}
+         if (decoded.length >= 64) {
+-            return new Uint8Array(decoded.subarray(0, 64));
++            const signature = decoded.subarray(0, 64);
++            if (signature.some((byte) => byte !== 0)) {
++                return new Uint8Array(signature);
++            }
+         }
+     }
+     return null;
+@@ -15933,6 +16063,19 @@ async function createProviderSigner(provider) {
+                     'Ensure your wallet is connected and supports the required transaction format.');
+             }
+         },
++        signTransactions: async (transactions) => {
++            console.log("[SolanaKitAdapter] signTransactions called for fee payer:", walletAddress);
++            const signatures = await signTransactionsWithProvider(transactions, provider);
++            console.log("[SolanaKitAdapter] signTransactions collected signatures:", signatures.length);
++            return transactions.map((tx, i) => {
++                const signaturesMap = { ...tx.signatures };
++                signaturesMap[walletAddress] = signatures[i];
++                return Object.freeze({
++                    ...tx,
++                    signatures: Object.freeze(signaturesMap),
++                });
++            });
++        },
+         /**
+          * Sign a web3.js VersionedTransaction using the wallet provider.
+          *
+@@ -15940,10 +16083,8 @@ async function createProviderSigner(provider) {
+          * transaction needs to be signed by the wallet.
+          */
+         signVersionedTransaction: async (transaction) => {
+-            // Convert to base64 wire format for provider signing
+-            const wireTransaction = Buffer.from(transaction.serialize()).toString('base64');
+-            // Sign with wallet provider
+-            const signedResponse = await provider.signTransaction(wireTransaction);
++            // Sign with wallet provider - pass the object directly for maximum compatibility
++            const signedResponse = await provider.signTransaction(transaction);
+             // Parse the signed transaction from the provider response
+             return parseProviderSignedTransaction(signedResponse);
+         },
