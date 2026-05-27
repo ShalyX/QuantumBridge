@@ -76,10 +76,10 @@ body {
 /* Header Styles */
 header {
     display: grid;
-    grid-template-columns: auto minmax(380px, max-content) auto;
+    grid-template-columns: auto auto;
     align-items: center;
     gap: clamp(1.5rem, 3.2vw, 3rem);
-    margin-bottom: 0;
+    margin-bottom: 1.05rem;
 }
 
 .logo {
@@ -661,14 +661,15 @@ header {
 .product-shell {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 1.45rem;
+    gap: 1.65rem;
     width: 100%;
     max-width: 1120px;
-    margin: 1.8rem auto 0;
+    margin: 0 auto;
 }
 
 .product-tabs {
-    position: static;
+    position: sticky;
+    top: 1rem;
     z-index: 20;
     display: flex;
     gap: 0.65rem;
@@ -676,7 +677,7 @@ header {
     max-width: 100%;
     padding: 0;
     border-radius: 0;
-    margin: 0 auto;
+    margin: 0 auto 0.25rem;
     justify-self: center;
 }
 
