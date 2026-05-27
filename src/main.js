@@ -290,6 +290,8 @@ let currentChainFilter = 'all';
 // DOM Elements
 const connectEvmBtn = document.getElementById('connect-evm');
 const connectSolanaBtn = document.getElementById('connect-solana');
+const disconnectEvmBtn = document.getElementById('disconnect-evm');
+const disconnectSolanaBtn = document.getElementById('disconnect-solana');
 const teleportBtn = document.getElementById('teleport-btn');
 const amountInput = document.getElementById('amount');
 const destinationAddressInput = document.getElementById('destination-address');
@@ -317,6 +319,9 @@ const estArrivalEl = document.getElementById('est-arrival');
 const routeHealthPill = document.getElementById('route-health-pill');
 const activityFilterBtns = Array.from(document.querySelectorAll('.filter-btn[data-filter]'));
 const chainFilterSelect = document.getElementById('chain-filter');
+const productTabs = Array.from(document.querySelectorAll('[data-app-tab]'));
+const productPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
+const tabSwitchers = Array.from(document.querySelectorAll('[data-switch-tab]'));
 const walletModalTabs = Array.from(document.querySelectorAll('#quantum-wallet-modal .modal-tab[data-tab]'));
 const walletModalSections = Array.from(document.querySelectorAll('#quantum-wallet-modal .wallet-section[data-section]'));
 const recoveryBurnTxInput = document.getElementById('recovery-burn-tx');
@@ -328,6 +333,40 @@ const recoveryBanner = document.getElementById('recovery-banner');
 const recoveryBannerText = document.getElementById('recovery-banner-text');
 const resumeAllRecoveriesBtn = document.getElementById('resume-all-recoveries');
 
+
+function setAppTab(tab) {
+    productTabs.forEach(btn => {
+        const active = btn.getAttribute('data-app-tab') === tab;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+
+    productPanels.forEach(panel => {
+        const active = panel.getAttribute('data-tab-panel') === tab;
+        panel.classList.toggle('active', active);
+        panel.hidden = !active;
+    });
+}
+
+function syncBodyScrollLock() {
+    const overlaysOpen = [quantumWalletModal, txDetailsOverlay, successOverlay]
+        .some(overlay => overlay?.style.display === 'flex');
+    document.body.classList.toggle('modal-open', overlaysOpen);
+}
+
+productTabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+        sounds.play('click');
+        setAppTab(btn.getAttribute('data-app-tab'));
+    });
+});
+
+tabSwitchers.forEach(btn => {
+    btn.addEventListener('click', () => {
+        sounds.play('click');
+        setAppTab(btn.getAttribute('data-switch-tab'));
+    });
+});
 
 
 function log(message, type = 'system') {
@@ -502,6 +541,19 @@ function writeWalletSession(patch) {
 
 function clearWalletSession() {
     localStorage.removeItem(WALLET_SESSION_STORAGE_KEY);
+}
+
+function forgetWalletSessionPart(part) {
+    const session = readWalletSession();
+    if (!session[part]) return;
+    delete session[part];
+    const hasWalletSession = Boolean(session.evm || session.solana);
+    if (!hasWalletSession) {
+        clearWalletSession();
+        return;
+    }
+    session.updatedAt = nowIso();
+    localStorage.setItem(WALLET_SESSION_STORAGE_KEY, JSON.stringify(session));
 }
 
 function rememberEvmWallet(providerDetail, account) {
@@ -2050,7 +2102,7 @@ async function connectEvmWallet(providerDetail, options = {}) {
         }
 
         connectEvmBtn.querySelector('span').innerText = `${evmAccount.slice(0, 6)}...${evmAccount.slice(-4)}`;
-        document.getElementById('disconnect-btn').style.display = 'inline-block';
+        if (disconnectEvmBtn) disconnectEvmBtn.hidden = false;
         rememberEvmWallet(providerDetail, evmAccount);
         log(`${silent ? 'EVM Node Restored' : 'EVM Node Linked'}: ${evmAccount}`, 'success');
         checkReady();
@@ -2060,6 +2112,9 @@ async function connectEvmWallet(providerDetail, options = {}) {
     } catch (e) {
         currentEvmProvider = null;
         evmAdapter = null;
+        evmAccount = null;
+        connectEvmBtn.querySelector('span').innerText = "Connect EVM";
+        if (disconnectEvmBtn) disconnectEvmBtn.hidden = true;
         if (silent) {
             console.warn('[QuantumBridge] Silent EVM restore skipped.', e);
             return false;
@@ -2099,12 +2154,12 @@ function setWalletModalTab(tab) {
 function openWalletModal(tab = 'evm') {
     setWalletModalTab(tab);
     quantumWalletModal.style.display = 'flex';
-    document.body.classList.add('modal-open');
+    syncBodyScrollLock();
 }
 
 function closeWalletModal() {
     quantumWalletModal.style.display = 'none';
-    document.body.classList.remove('modal-open');
+    syncBodyScrollLock();
 }
 
 closeQuantumModalBtn.addEventListener('click', closeWalletModal);
@@ -2121,20 +2176,44 @@ walletModalTabs.forEach(btn => {
     });
 });
 
-document.getElementById('disconnect-btn').addEventListener('click', () => {
-    sounds.play('click');
-    try { currentSolanaProvider?.disconnect?.(); } catch {}
-    evmAccount = null; evmAdapter = null; currentEvmProvider = null;
-    connectEvmBtn.querySelector('span').innerText = "Connect EVM";
-    solanaAccount = null; solanaWalletType = null; solanaAdapter = null; currentSolanaProvider = null;
-    evmRestoreAttempted = false; solanaRestoreAttempted = false;
-    clearWalletSession();
+function refreshAfterWalletDisconnect() {
     clearVisibleTransferState();
     clearLegacyTransferBrowserStorage();
+    updateBalances();
+    checkReady();
+    if (evmAccount || solanaAccount) {
+        syncServerTransfersForConnectedWallets();
+    }
+}
+
+function disconnectEvmWallet() {
+    sounds.play('click');
+    evmAccount = null;
+    evmAdapter = null;
+    currentEvmProvider = null;
+    evmRestoreAttempted = false;
+    forgetWalletSessionPart('evm');
+    connectEvmBtn.querySelector('span').innerText = "Connect EVM";
+    if (disconnectEvmBtn) disconnectEvmBtn.hidden = true;
+    refreshAfterWalletDisconnect();
+}
+
+function disconnectSolanaWallet() {
+    sounds.play('click');
+    try { currentSolanaProvider?.disconnect?.(); } catch {}
+    solanaAccount = null;
+    solanaWalletType = null;
+    solanaAdapter = null;
+    currentSolanaProvider = null;
+    solanaRestoreAttempted = false;
+    forgetWalletSessionPart('solana');
     connectSolanaBtn.querySelector('span').innerText = "Connect Solana";
-    document.getElementById('disconnect-btn').style.display = 'none';
-    updateBalances(); checkReady();
-});
+    if (disconnectSolanaBtn) disconnectSolanaBtn.hidden = true;
+    refreshAfterWalletDisconnect();
+}
+
+disconnectEvmBtn?.addEventListener('click', disconnectEvmWallet);
+disconnectSolanaBtn?.addEventListener('click', disconnectSolanaWallet);
 
 connectSolanaBtn.addEventListener('click', () => {
     sounds.play('click');
@@ -2338,6 +2417,7 @@ async function connectSolanaWallet(walletType, options = {}) {
         solanaAccount = connectedAddress;
         solanaWalletType = walletType;
         connectSolanaBtn.querySelector('span').innerText = `${solanaAccount.slice(0, 4)}...${solanaAccount.slice(-4)}`;
+        if (disconnectSolanaBtn) disconnectSolanaBtn.hidden = false;
         rememberSolanaWallet(walletType, solanaAccount);
         log(`${silent ? 'Solana Fleet Restored' : 'Solana Fleet Connected'}: ${solanaAccount}`, 'success');
         checkReady(); updateBalances();
@@ -2354,6 +2434,7 @@ async function connectSolanaWallet(walletType, options = {}) {
             log(`Solana connection failed: ${getProductErrorMessage(e)}`, 'error');
         }
         btnSpan.innerText = "Connect Solana";
+        if (disconnectSolanaBtn) disconnectSolanaBtn.hidden = true;
         checkReady();
         return false;
     } finally {
@@ -2645,6 +2726,7 @@ teleportBtn.addEventListener('click', async () => {
             sounds.play('success');
             finalEtaLabel = 'Arrived';
             successOverlay.style.display = 'flex';
+            syncBodyScrollLock();
             if (activeBridgeContext?.burnTxHash) {
                 patchPendingRecovery(activeBridgeContext.burnTxHash, {
                     status: 'minted',
@@ -2789,6 +2871,7 @@ themeToggle.addEventListener('click', () => {
 closeOverlayBtn.addEventListener('click', () => {
     successOverlay.style.display = 'none';
     stepper.style.display = 'none';
+    syncBodyScrollLock();
 });
 
 function formatActivityTime(timestamp) {
@@ -2917,13 +3000,13 @@ function openTransactionDetails(item) {
         </div>
     `;
     txDetailsOverlay.style.display = 'flex';
-    document.body.classList.add('modal-open');
+    syncBodyScrollLock();
 }
 
 function closeTransactionDetails() {
     if (!txDetailsOverlay) return;
     txDetailsOverlay.style.display = 'none';
-    document.body.classList.remove('modal-open');
+    syncBodyScrollLock();
 }
 
 closeTxDetailsBtn?.addEventListener('click', closeTransactionDetails);

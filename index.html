@@ -28,112 +28,179 @@
                     <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
                     <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
                 </button>
-                <div class="wallet-status">
-                    <button id="connect-evm" class="btn btn-glass">
-                        <img src="https://cryptologos.cc/logos/ethereum-eth-logo.svg?v=025" alt="EVM" width="16">
-                        <span>Connect EVM</span>
-                    </button>
-                    <button id="connect-solana" class="btn btn-glass">
-                        <img src="https://cryptologos.cc/logos/solana-sol-logo.svg?v=025" alt="Solana" width="16">
-                        <span>Connect Solana</span>
-                    </button>
-                    <button id="disconnect-btn" class="btn btn-glass disconnect-icon-btn" style="display: none;" title="Disconnect Fleet">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                    </button>
+                <div class="wallet-status" aria-label="Wallet connections">
+                    <div class="wallet-control">
+                        <button id="connect-evm" class="btn btn-glass">
+                            <img src="https://cryptologos.cc/logos/ethereum-eth-logo.svg?v=025" alt="EVM" width="16">
+                            <span>Connect EVM</span>
+                        </button>
+                        <button id="disconnect-evm" class="btn btn-glass disconnect-icon-btn" hidden title="Disconnect EVM wallet" aria-label="Disconnect EVM wallet">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                        </button>
+                    </div>
+                    <div class="wallet-control">
+                        <button id="connect-solana" class="btn btn-glass">
+                            <img src="https://cryptologos.cc/logos/solana-sol-logo.svg?v=025" alt="Solana" width="16">
+                            <span>Connect Solana</span>
+                        </button>
+                        <button id="disconnect-solana" class="btn btn-glass disconnect-icon-btn" hidden title="Disconnect Solana wallet" aria-label="Disconnect Solana wallet">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         </header>
 
-        <main>
-            <div class="bridge-card glass">
-                <div class="card-header">
-                    <h2>Teleport USDC</h2>
-                    <p>Sub-second cross-chain settlement</p>
-                </div>
+        <main class="product-shell">
+            <nav class="product-tabs glass" aria-label="QuantumBridge workspace">
+                <button class="product-tab active" data-app-tab="demo" aria-selected="true">Demo</button>
+                <button class="product-tab" data-app-tab="bridge" aria-selected="false">Bridge</button>
+                <button class="product-tab" data-app-tab="activity" aria-selected="false">Activity</button>
+                <button class="product-tab" data-app-tab="recovery" aria-selected="false">Recovery</button>
+            </nav>
 
-                <div class="transfer-grid">
-                    <div class="transfer-node origin">
-                        <label>Origin Node</label>
-                        <select id="origin-chain">
-                            <option value="arc">Arc Network</option>
-                            <option value="ethereum">Ethereum Sepolia</option>
-                            <option value="solana">Solana Devnet</option>
-                        </select>
-                        <div class="balance-info">
-                            <span>Balance: <span id="origin-balance">0.00</span> USDC</span>
-                            <button id="refresh-balances" class="refresh-mini" title="Refresh Balances">🔄</button>
+            <section class="tab-panel active" data-tab-panel="demo">
+                <div class="landing-hero glass">
+                    <div class="landing-copy">
+                        <span class="eyebrow">CCTP-powered testnet bridge</span>
+                        <h2>QuantumBridge</h2>
+                        <p>Move USDC across Arc Testnet, Solana Devnet, and Ethereum Sepolia with durable transfer state, route-aware recovery, and supported-wallet guardrails.</p>
+                        <div class="landing-actions">
+                            <button class="btn btn-primary" data-switch-tab="bridge">Open Bridge</button>
+                            <button class="btn btn-glass" data-switch-tab="recovery">Resume Transfer</button>
                         </div>
                     </div>
-
-                    <div class="teleport-icon" id="swap-chains">
-                        <div class="pulse-ring"></div>
-                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; color: #ffffff;">
-                            <path d="M7 16L3 12L7 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            <path d="M17 8L21 12L17 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    </div>
-
-                    <div class="transfer-node destination">
-                        <label>Destination Node</label>
-                        <select id="destination-chain">
-                            <option value="solana" selected>Solana Devnet</option>
-                            <option value="arc">Arc Network</option>
-                            <option value="ethereum">Ethereum Sepolia</option>
-                        </select>
-                        <div class="balance-info">
-                            <span>Balance: <span id="dest-balance">0.00</span> USDC</span>
+                    <div class="demo-orbit" aria-label="Supported demo routes">
+                        <div class="route-card primary">
+                            <span>Solana Devnet</span>
+                            <strong>Arc Testnet</strong>
+                            <small>Forwarder or manual resume</small>
+                        </div>
+                        <div class="route-card">
+                            <span>Arc Testnet</span>
+                            <strong>Solana Devnet</strong>
+                            <small>Manual destination mint</small>
+                        </div>
+                        <div class="route-card">
+                            <span>Solana Devnet</span>
+                            <strong>Ethereum Sepolia</strong>
+                            <small>Dynamic Forwarder fee</small>
                         </div>
                     </div>
                 </div>
-
-                <div class="amount-input-container">
-                    <label>Amount to Teleport</label>
-                    <div class="input-wrapper">
-                        <input type="number" id="amount" placeholder="0.00" min="0" step="0.01">
-                        <span class="currency-tag">USDC</span>
-                    </div>
-                    <div class="amount-presets">
-                        <button class="preset-btn" data-value="10">10</button>
-                        <button class="preset-btn" data-value="50">50</button>
-                        <button class="preset-btn" data-value="100">100</button>
-                        <button class="preset-btn" id="max-btn">MAX</button>
-                    </div>
+                <div class="demo-grid">
+                    <article class="demo-card glass">
+                        <span>Wallets</span>
+                        <strong>Backpack and Solflare ready</strong>
+                        <p>Phantom remains limited for Solana CCTP routes until its signature flow is stable.</p>
+                    </article>
+                    <article class="demo-card glass">
+                        <span>Recovery</span>
+                        <strong>Transfers resume after refresh</strong>
+                        <p>Burns are tracked through attestation, destination mint, completion, and already-claimed states.</p>
+                    </article>
+                    <article class="demo-card glass">
+                        <span>Forwarder Fees</span>
+                        <strong>Live route checks</strong>
+                        <p>Small forwarded transfers are blocked before signing when Circle's dynamic route fee exceeds the amount.</p>
+                    </article>
                 </div>
+            </section>
 
-                <div class="destination-address-container">
-                    <label for="destination-address">Destination Wallet</label>
-                    <div class="input-wrapper compact">
-                        <input type="text" id="destination-address" placeholder="Use connected destination wallet">
+            <section class="tab-panel bridge-workspace" data-tab-panel="bridge" hidden>
+                <div class="bridge-card glass">
+                    <div class="card-header">
+                        <h2>Teleport USDC</h2>
+                        <p>Route-aware USDC transfer control</p>
                     </div>
-                    <small id="destination-address-hint">Leave blank to receive with your connected wallet.</small>
-                </div>
 
-                <div class="forwarding-notice" id="forwarding-notice">
-                    <div class="notice-icon">⚡</div>
-                    <div class="notice-text">
-                        <strong>Gasless Arrival Enabled</strong>
-                        <p>Circle Forwarder will complete the destination mint. No destination gas required.</p>
-                    </div>
-                </div>
+                    <div class="transfer-grid">
+                        <div class="transfer-node origin">
+                            <label>Origin Node</label>
+                            <select id="origin-chain">
+                                <option value="arc">Arc Network</option>
+                                <option value="ethereum">Ethereum Sepolia</option>
+                                <option value="solana">Solana Devnet</option>
+                            </select>
+                            <div class="balance-info">
+                                <span>Balance: <span id="origin-balance">0.00</span> USDC</span>
+                                <button id="refresh-balances" class="refresh-mini" title="Refresh Balances" aria-label="Refresh balances">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M18.5 9A7 7 0 0 0 6.6 5.8L4 8"/><path d="M5.5 15A7 7 0 0 0 17.4 18.2L20 16"/></svg>
+                                </button>
+                            </div>
+                        </div>
 
-                <div class="stepper" id="teleport-stepper">
-                    <div class="step" id="step-1">
-                        <div class="step-icon">1</div>
-                        <span class="step-label">Approve</span>
+                        <div class="teleport-icon" id="swap-chains" title="Swap chains" aria-label="Swap chains">
+                            <div class="pulse-ring"></div>
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px; color: #ffffff;">
+                                <path d="M7 16L3 12L7 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M17 8L21 12L17 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+
+                        <div class="transfer-node destination">
+                            <label>Destination Node</label>
+                            <select id="destination-chain">
+                                <option value="solana" selected>Solana Devnet</option>
+                                <option value="arc">Arc Network</option>
+                                <option value="ethereum">Ethereum Sepolia</option>
+                            </select>
+                            <div class="balance-info">
+                                <span>Balance: <span id="dest-balance">0.00</span> USDC</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="step" id="step-2">
-                        <div class="step-icon">2</div>
-                        <span class="step-label">Initiate</span>
+
+                    <div class="amount-input-container">
+                        <label>Amount to Teleport</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="amount" placeholder="0.00" min="0" step="0.01">
+                            <span class="currency-tag">USDC</span>
+                        </div>
+                        <div class="amount-presets">
+                            <button class="preset-btn" data-value="10">10</button>
+                            <button class="preset-btn" data-value="50">50</button>
+                            <button class="preset-btn" data-value="100">100</button>
+                            <button class="preset-btn" id="max-btn">MAX</button>
+                        </div>
                     </div>
-                    <div class="step" id="step-3">
-                        <div class="step-icon">3</div>
-                        <span class="step-label">Attest</span>
+
+                    <div class="destination-address-container">
+                        <label for="destination-address">Destination Wallet</label>
+                        <div class="input-wrapper compact">
+                            <input type="text" id="destination-address" placeholder="Use connected destination wallet">
+                        </div>
+                        <small id="destination-address-hint">Leave blank to receive with your connected wallet.</small>
                     </div>
-                    <div class="step" id="step-4">
-                        <div class="step-icon">4</div>
-                        <span class="step-label">Complete</span>
+
+                    <div class="forwarding-notice" id="forwarding-notice">
+                        <div class="notice-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 9-12h-7l1-8Z"/></svg>
+                        </div>
+                        <div class="notice-text">
+                            <strong>Gasless Arrival Enabled</strong>
+                            <p>Circle Forwarder will complete the destination mint. No destination gas required.</p>
+                        </div>
                     </div>
-                </div>
+
+                    <div class="stepper" id="teleport-stepper">
+                        <div class="step" id="step-1">
+                            <div class="step-icon">1</div>
+                            <span class="step-label">Approve</span>
+                        </div>
+                        <div class="step" id="step-2">
+                            <div class="step-icon">2</div>
+                            <span class="step-label">Initiate</span>
+                        </div>
+                        <div class="step" id="step-3">
+                            <div class="step-icon">3</div>
+                            <span class="step-label">Attest</span>
+                        </div>
+                        <div class="step" id="step-4">
+                            <div class="step-icon">4</div>
+                            <span class="step-label">Complete</span>
+                        </div>
+                    </div>
 
                     <div class="route-metrics glass">
                         <div class="metric-item">
@@ -150,11 +217,52 @@
                         </div>
                     </div>
 
-                <button id="teleport-btn" class="btn btn-primary btn-large" disabled>
-                    <span class="btn-text">Initiate Teleportation</span>
-                    <div class="btn-loader"></div>
-                </button>
+                    <button id="teleport-btn" class="btn btn-primary btn-large" disabled>
+                        <span class="btn-text">Initiate Teleportation</span>
+                        <div class="btn-loader"></div>
+                    </button>
+                </div>
 
+                <div class="status-console glass">
+                    <div class="console-header">
+                        <h3>Teleportation Status</h3>
+                        <div class="live-indicator">
+                            <span class="dot"></span> LIVE
+                        </div>
+                    </div>
+                    <div id="console-logs" class="console-body">
+                        <div class="log-entry system">System initialized. Awaiting user connection...</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="tab-panel" data-tab-panel="activity" hidden>
+                <div class="activity-portal glass">
+                    <div class="portal-header">
+                        <div class="portal-title-group">
+                            <h3>Activity Portal</h3>
+                            <div class="portal-filters">
+                                <button class="filter-btn active" data-filter="all">All</button>
+                                <button class="filter-btn" data-filter="success">Success</button>
+                                <button class="filter-btn" data-filter="pending">Pending</button>
+                                <button class="filter-btn" data-filter="error">Failed</button>
+                                <select id="chain-filter" class="filter-select">
+                                    <option value="all">All Chains</option>
+                                    <option value="arc">Arc</option>
+                                    <option value="solana">Solana</option>
+                                    <option value="ethereum">Ethereum</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button id="clear-activity" class="clear-btn">Clear History</button>
+                    </div>
+                    <div id="activity-list" class="portal-body">
+                        <div class="empty-state">No recent activity detected.</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="tab-panel" data-tab-panel="recovery" hidden>
                 <div class="recovery-panel glass">
                     <div id="recovery-banner" class="recovery-banner" hidden>
                         <div>
@@ -193,43 +301,7 @@
                     </div>
                     <div id="pending-recoveries" class="pending-recoveries"></div>
                 </div>
-            </div>
-
-            <div class="status-console glass">
-                <div class="console-header">
-                    <h3>Teleportation Status</h3>
-                    <div class="live-indicator">
-                        <span class="dot"></span> LIVE
-                    </div>
-                </div>
-                <div id="console-logs" class="console-body">
-                    <div class="log-entry system">System initialized. Awaiting user connection...</div>
-                </div>
-            </div>
-
-            <div class="activity-portal glass">
-                <div class="portal-header">
-                    <div class="portal-title-group">
-                        <h3>Activity Portal</h3>
-                        <div class="portal-filters">
-                            <button class="filter-btn active" data-filter="all">All</button>
-                            <button class="filter-btn" data-filter="success">Success</button>
-                            <button class="filter-btn" data-filter="pending">Pending</button>
-                            <button class="filter-btn" data-filter="error">Failed</button>
-                            <select id="chain-filter" class="filter-select">
-                                <option value="all">All Chains</option>
-                                <option value="arc">Arc</option>
-                                <option value="solana">Solana</option>
-                                <option value="ethereum">Ethereum</option>
-                            </select>
-                        </div>
-                    </div>
-                    <button id="clear-activity" class="clear-btn">Clear History</button>
-                </div>
-                <div id="activity-list" class="portal-body">
-                    <div class="empty-state">No recent activity detected.</div>
-                </div>
-            </div>
+            </section>
         </main>
 
         <footer>
