@@ -42,6 +42,7 @@ Recovery behavior:
 Known limits:
 
 - This is testnet-only for v0.1.0.
+- Circle Forwarder fees are dynamic by route. Very small forwarded transfers can be below the current route fee and will be blocked before wallet signing.
 - Render Free runs the Iris polling worker inside the web service. Polling pauses if the service sleeps.
 - Phantom is intentionally blocked or labeled limited for Solana CCTP routes until wallet signing behavior is verified.
 - Browser wallet availability depends on each browser extension exposing the expected provider.
@@ -66,4 +67,3 @@ Health check:
 ```text
 /api/health
 ```
-

@@ -200,10 +200,19 @@ const server = http.createServer(async (req, res) => {
             : null;
         if (eventId) {
             const body = await readJson(req);
-            const transfer = await store.getTransfer(eventId);
+            let transfer = await store.getTransfer(eventId);
             if (!transfer) {
-                sendJson(res, 404, { error: 'Transfer not found' });
-                return;
+                const context = body.payload?.transferContext || body.transferContext || {};
+                transfer = await store.upsertTransfer({
+                    ...context,
+                    id: eventId,
+                    recoveryId: context.recoveryId || eventId,
+                    state: context.state || 'created',
+                    metadata: {
+                        ...(context.metadata || {}),
+                        eventCreatedBeforeTransfer: true,
+                    },
+                });
             }
             await store.appendTransferEvent(transfer.id, body.type || 'transfer.event', body.payload || body);
             if (String(body.type || '').includes('failed') || String(body.type || '').includes('error')) {

@@ -72,6 +72,7 @@ Circle Forwarder is enabled only when the destination is `arc` or `ethereum`. So
 - Attempt Solana source transfer with Phantom; confirm the UI asks for Solflare or Backpack instead of exposing raw adapter errors.
 - Confirm the live time estimate updates from route/network health probes and does not count down.
 - Confirm failed bridge and recovery attempts create `transfer.failed` or `transfer.failure_captured` events in the support bundle and produce a Render log entry.
+- Try a tiny Solana Devnet -> Ethereum Sepolia transfer below the current Circle Forwarder fee and confirm the app blocks before wallet signing with a product message.
 
 ## Product Error Messages
 
@@ -80,6 +81,7 @@ Use user-facing messages for expected bridge states:
 - Already claimed: `This burn was already claimed.`
 - Attestation pending: `Circle attestation is not ready yet.`
 - Unsupported Solana wallet for route: `Phantom is limited for this CCTP route. Connect Backpack or Solflare to complete it.`
+- Forwarder fee exceeds amount: `This transfer is below the current Circle Forwarder fee for this route. Increase the amount and try again.`
 - Wallet cancellation: `Wallet approval was cancelled.`
 
 Raw SDK errors belong in the browser console only.

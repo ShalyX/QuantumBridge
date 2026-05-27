@@ -446,6 +446,7 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     invalidDestinationAddress: 'Enter a valid destination wallet address for this chain.',
     missingDestinationAddress: 'Connect a destination wallet or paste a destination address.',
     noCctpMessage: 'No CCTP burn message was found for this transaction.',
+    forwarderFeeTooHigh: 'This transfer is below the current Circle Forwarder fee for this route. Increase the amount and try again.',
     simulationFailed: 'The destination chain rejected this mint. Try Resume transfer again, or use a supported wallet for this route.',
     genericRecoverable: 'Transfer paused. Resume it from the recovery panel when wallets are connected.',
 });
@@ -654,11 +655,25 @@ async function syncTransferToBackend(record, mode = 'upsert') {
 async function recordTransferEvent(transferId, type, payload = {}) {
     if (!transferId) return;
     try {
-        await fetch(transferApiUrl(`/api/transfers/${encodeURIComponent(transferId)}/events`), {
+        await flushQueuedTransferSyncs();
+        const enrichedPayload = {
+            ...payload,
+            transferContext: activeBridgeContext?.id === transferId ? activeBridgeContext : payload.transferContext,
+        };
+        let response = await fetch(transferApiUrl(`/api/transfers/${encodeURIComponent(transferId)}/events`), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type, payload }),
+            body: JSON.stringify({ type, payload: enrichedPayload }),
         });
+        if (response.status === 404 && activeBridgeContext?.id === transferId) {
+            await syncTransferToBackend(activeBridgeContext, 'upsert');
+            response = await fetch(transferApiUrl(`/api/transfers/${encodeURIComponent(transferId)}/events`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type, payload: enrichedPayload }),
+            });
+        }
+        if (!response.ok) throw new Error(`Transfer event API ${response.status}`);
     } catch (error) {
         console.warn('[QuantumBridge] Transfer event sync failed.', error);
     }
@@ -1013,6 +1028,15 @@ function getProductErrorMessage(error) {
     const lower = text.toLowerCase();
 
     if (isNonceAlreadyUsedError(error)) return PRODUCT_ERROR_MESSAGES.alreadyClaimed;
+    if (
+        lower.includes('maxfeemustbelessthanamount') ||
+        lower.includes('max fee must be less than amount') ||
+        lower.includes('below the current circle forwarder fee') ||
+        lower.includes('forwarder fee')
+    ) {
+        if (lower.includes('current estimated route fee')) return text;
+        return PRODUCT_ERROR_MESSAGES.forwarderFeeTooHigh;
+    }
     if (lower.includes('attestation is still pending') || lower.includes('not ready yet') || lower.includes('has not indexed')) {
         return lower.includes('indexed') ? PRODUCT_ERROR_MESSAGES.circleIndexing : PRODUCT_ERROR_MESSAGES.attestationPending;
     }
@@ -1086,6 +1110,50 @@ function validateDestinationAddress(chain, address) {
 
 function getDestinationRecipient(chain) {
     return validateDestinationAddress(chain, getManualDestinationAddress() || getDefaultDestinationAddress(chain));
+}
+
+function parseUsdcMinorUnits(value) {
+    const raw = String(value || '').trim();
+    if (!/^\d+(\.\d{0,6})?$/.test(raw)) throw new Error('Enter a valid USDC amount.');
+    const [whole, fraction = ''] = raw.split('.');
+    return BigInt(whole || '0') * 1000000n + BigInt(fraction.padEnd(6, '0').slice(0, 6) || '0');
+}
+
+function formatUsdcMinorUnits(value) {
+    const units = BigInt(value || 0);
+    const whole = units / 1000000n;
+    const fraction = String(units % 1000000n).padStart(6, '0').replace(/0+$/, '');
+    return fraction ? `${whole}.${fraction}` : `${whole}`;
+}
+
+async function fetchForwarderFeeMinorUnits(sourceDomain, destinationDomain) {
+    const response = await fetch(`${IRIS_API}/v2/burn/USDC/fees/${sourceDomain}/${destinationDomain}?forward=true`);
+    if (!response.ok) throw new Error(`Circle Forwarder fee lookup failed (${response.status})`);
+    const feeTiers = await response.json();
+    const fastTier = Array.isArray(feeTiers)
+        ? feeTiers.find(tier => Number(tier.finalityThreshold) === 1000) || feeTiers[0]
+        : null;
+    const fee = fastTier?.forwardFee?.high ?? fastTier?.forwardFee?.med ?? fastTier?.forwardFee?.low;
+    if (fee === undefined || fee === null) throw new Error('Circle Forwarder fee is unavailable for this route.');
+    return BigInt(String(fee));
+}
+
+async function assertForwarderAmountCoversFee({ from, to, amount }) {
+    const sourceDomain = CCTP_DOMAINS[from];
+    const destinationDomain = CCTP_DOMAINS[to];
+    if (sourceDomain === undefined || destinationDomain === undefined) return null;
+
+    const [amountMinor, forwarderFeeMinor] = await Promise.all([
+        Promise.resolve(parseUsdcMinorUnits(amount)),
+        fetchForwarderFeeMinorUnits(sourceDomain, destinationDomain),
+    ]);
+    if (amountMinor <= forwarderFeeMinor) {
+        const minimumMinor = forwarderFeeMinor + 1n;
+        throw new Error(
+            `${PRODUCT_ERROR_MESSAGES.forwarderFeeTooHigh} Current estimated route fee is ${formatUsdcMinorUnits(forwarderFeeMinor)} USDC; send more than ${formatUsdcMinorUnits(minimumMinor)} USDC.`,
+        );
+    }
+    return forwarderFeeMinor;
 }
 
 function syncDestinationAddressUI() {
@@ -2523,20 +2591,6 @@ teleportBtn.addEventListener('click', async () => {
         
         const recipient = getDestinationRecipient(to);
         const formattedAmount = parseFloat(amount).toFixed(2);
-        const bridgeParams = {
-            from: { adapter: adapterFrom, chain: CHAIN_MAPPING[from] },
-            to: useForwarder
-                ? { chain: CHAIN_MAPPING[to], recipientAddress: recipient, useForwarder: true }
-                : { adapter: solanaAdapter, chain: CHAIN_MAPPING[to], recipientAddress: recipient },
-            amount: formattedAmount,
-            config: { transferSpeed: 'FAST' }
-        };
-
-        log(useForwarder
-            ? "Quantum tunnel stabilized. Circle Forwarder will complete destination mint..."
-            : "Quantum tunnel stabilized. Commencing transfer..."
-        );
-        startEstimatedArrivalMonitor(from, to);
         activeBridgeContext = {
             id: `${Date.now()}-${from}-${to}`,
             from,
@@ -2562,6 +2616,29 @@ teleportBtn.addEventListener('click', async () => {
             lifecycleState: TRANSFER_STATES.CREATED,
             lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.CREATED),
         });
+        await syncTransferToBackend(activeBridgeContext, 'upsert');
+
+        if (useForwarder) {
+            const feeMinor = await assertForwarderAmountCoversFee({ from, to, amount: formattedAmount });
+            if (feeMinor !== null) {
+                log(`Circle Forwarder route fee estimate: ${formatUsdcMinorUnits(feeMinor)} USDC.`, 'loading');
+            }
+        }
+
+        const bridgeParams = {
+            from: { adapter: adapterFrom, chain: CHAIN_MAPPING[from] },
+            to: useForwarder
+                ? { chain: CHAIN_MAPPING[to], recipientAddress: recipient, useForwarder: true }
+                : { adapter: solanaAdapter, chain: CHAIN_MAPPING[to], recipientAddress: recipient },
+            amount: formattedAmount,
+            config: { transferSpeed: 'FAST' }
+        };
+
+        log(useForwarder
+            ? "Quantum tunnel stabilized. Circle Forwarder will complete destination mint..."
+            : "Quantum tunnel stabilized. Commencing transfer..."
+        );
+        startEstimatedArrivalMonitor(from, to);
         const result = await kit.bridge(bridgeParams);
 
         if (result.state === 'success') {
