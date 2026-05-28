@@ -1922,6 +1922,34 @@ let evmRestoreAttempted = false;
 let solanaRestoreAttempted = false;
 let walletRestoreScheduled = false;
 
+const SOLANA_WALLET_CATALOG = Object.freeze([
+    {
+        walletType: 'phantom',
+        name: 'Phantom',
+        supportLabel: 'Limited for CCTP routes',
+        supportClass: 'limited',
+        optionClass: 'limited',
+    },
+    {
+        walletType: 'backpack',
+        name: 'Backpack',
+        supportLabel: 'Supported',
+        supportClass: 'supported',
+    },
+    {
+        walletType: 'solflare',
+        name: 'Solflare',
+        supportLabel: 'Supported',
+        supportClass: 'supported',
+    },
+    {
+        walletType: 'zerion',
+        name: 'Zerion',
+        supportLabel: 'Wallet dependent',
+        supportClass: 'experimental',
+    },
+]);
+
 function inferEvmProviderName(provider, index = 0) {
     if (provider?.isZerion || provider?.isZerionWallet) return 'Zerion';
     if (provider?.isRabby) return 'Rabby';
@@ -2026,6 +2054,151 @@ function renderEvmWallets() {
             const providerDetail = evmProviders.find(p => p.info.uuid === uuid);
             connectEvmWallet(providerDetail);
             closeWalletModal();
+        });
+    });
+}
+
+function getWalletStandardWallets() {
+    const walletSources = [
+        window.navigator?.wallets,
+        window.wallets,
+    ].filter(Boolean);
+
+    for (const source of walletSources) {
+        try {
+            const wallets = typeof source.get === 'function' ? source.get() : source;
+            if (Array.isArray(wallets)) return wallets;
+        } catch {}
+    }
+
+    return [];
+}
+
+function findStandardSolanaWallet(walletType) {
+    const catalogItem = SOLANA_WALLET_CATALOG.find(item => item.walletType === walletType);
+    const expected = (catalogItem?.name || walletType).toLowerCase();
+    return getWalletStandardWallets().find(wallet => {
+        const name = String(wallet?.name || wallet?.info?.name || '').toLowerCase();
+        return name.includes(expected) && (
+            wallet?.chains?.some?.(chain => String(chain).toLowerCase().includes('solana')) ||
+            Object.keys(wallet?.features || {}).some(feature => feature.toLowerCase().includes('solana')) ||
+            name.includes(expected)
+        );
+    }) || null;
+}
+
+function getProviderIcon(provider, standardWallet) {
+    return standardWallet?.icon ||
+        standardWallet?.info?.icon ||
+        provider?.icon ||
+        provider?.info?.icon ||
+        provider?.metadata?.icon ||
+        '';
+}
+
+function getSolanaWalletMark(walletType) {
+    const marks = {
+        phantom: `
+            <svg viewBox="0 0 32 32">
+                <rect width="32" height="32" rx="10" fill="#AB9FF2"/>
+                <path d="M8 18.1c0-5 3.8-9.1 8.4-9.1 4.5 0 7.6 3.4 7.6 8.3v4.6c0 .6-.7.9-1.1.5l-1.6-1.4c-.2-.2-.5-.2-.7 0l-1.5 1.4c-.3.3-.7.3-1 0L16.8 21c-.2-.2-.5-.2-.7 0l-1.5 1.4c-.3.3-.7.3-1 0L12.2 21c-.2-.2-.5-.2-.7 0l-1.7 1.5c-.4.4-1.1.1-1.1-.5v-3.9Z" fill="#fff"/>
+                <circle cx="19.7" cy="15.5" r="1.1" fill="#2B2155"/>
+                <circle cx="23" cy="15.5" r="1.1" fill="#2B2155"/>
+            </svg>
+        `,
+        backpack: `
+            <svg viewBox="0 0 32 32">
+                <rect width="32" height="32" rx="10" fill="#EF4444"/>
+                <path d="M12 10.5A4 4 0 0 1 16 7a4 4 0 0 1 4 3.5" fill="none" stroke="#14141A" stroke-width="2.2" stroke-linecap="round"/>
+                <path d="M9 14.5A4.5 4.5 0 0 1 13.5 10h5A4.5 4.5 0 0 1 23 14.5V25H9V14.5Z" fill="#14141A"/>
+                <rect x="12" y="17" width="8" height="4" rx="2" fill="#EF4444"/>
+            </svg>
+        `,
+        solflare: `
+            <svg viewBox="0 0 32 32">
+                <rect width="32" height="32" rx="10" fill="#14141A"/>
+                <path d="M8 10h16l-3.5 4H4.5L8 10Z" fill="#8B5CF6"/>
+                <path d="M11.5 15h16L24 19H8l3.5-4Z" fill="#06B6D4"/>
+                <path d="M8 20h16l-3.5 4H4.5L8 20Z" fill="#10B981"/>
+            </svg>
+        `,
+        zerion: `
+            <svg viewBox="0 0 32 32">
+                <rect width="32" height="32" rx="10" fill="#2563EB"/>
+                <path d="M10 10h12v3.2l-6.7 5.6H22V22H10v-3.2l6.8-5.6H10V10Z" fill="#fff"/>
+            </svg>
+        `,
+    };
+
+    return `
+        <span class="wallet-icon wallet-mark ${escapeHtml(walletType)}-mark" aria-hidden="true">
+            ${marks[walletType] || `<span>${escapeHtml(walletType.slice(0, 1).toUpperCase())}</span>`}
+        </span>
+    `;
+}
+
+function getSolanaWalletIconMarkup(walletType, name, provider) {
+    const standardWallet = findStandardSolanaWallet(walletType);
+    const providerName = standardWallet?.name || standardWallet?.info?.name || name;
+    const icon = getProviderIcon(provider, standardWallet);
+    const fallback = getSolanaWalletMark(walletType);
+
+    if (!icon) return fallback;
+    return `
+        <span class="wallet-icon-stack">
+            <img src="${escapeHtml(icon)}" alt="${escapeHtml(providerName)}" class="wallet-icon" data-wallet-icon>
+            ${fallback}
+        </span>
+    `;
+}
+
+function wireWalletIconFallbacks(root) {
+    root.querySelectorAll('img[data-wallet-icon]').forEach(img => {
+        img.addEventListener('error', () => {
+            img.closest('.wallet-icon-stack')?.classList.add('icon-failed');
+        }, { once: true });
+    });
+}
+
+function renderSolanaWallets() {
+    const list = document.getElementById('solana-wallet-list');
+    if (!list) return;
+
+    list.innerHTML = SOLANA_WALLET_CATALOG.map(wallet => {
+        const provider = getSolanaWalletProvider(wallet.walletType);
+        const detected = Boolean(provider);
+        const optionClasses = [
+            wallet.optionClass || '',
+            detected ? '' : 'not-detected',
+        ].filter(Boolean).join(' ');
+        return `
+            <div class="wallet-option ${escapeHtml(optionClasses)}" data-wallet="${escapeHtml(wallet.walletType)}" aria-disabled="${detected ? 'false' : 'true'}" title="${detected ? '' : 'Wallet not detected'}">
+                ${getSolanaWalletIconMarkup(wallet.walletType, wallet.name, provider)}
+                <span class="wallet-copy">
+                    <span class="wallet-name">${escapeHtml(wallet.name)}</span>
+                    <span class="wallet-support ${escapeHtml(wallet.supportClass)}">${escapeHtml(wallet.supportLabel)}</span>
+                </span>
+            </div>
+        `;
+    }).join('');
+
+    wireWalletIconFallbacks(list);
+    list.querySelectorAll('.wallet-option[data-wallet]').forEach(opt => {
+        opt.addEventListener('click', async () => {
+            const walletType = opt.getAttribute('data-wallet');
+            const provider = getSolanaWalletProvider(walletType);
+            if (!provider) {
+                sounds.play('error');
+                alert(`${walletType} wallet not detected. Backpack and Solflare are supported for Solana routes; Phantom is limited for this route.`);
+                return;
+            }
+            if (walletType === 'phantom') {
+                sounds.play('error');
+                log(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported, 'error');
+                return;
+            }
+            closeWalletModal();
+            await connectSolanaWallet(walletType);
         });
     });
 }
@@ -2196,9 +2369,8 @@ function setWalletModalTab(tab) {
         section.style.display = active ? '' : 'none';
     });
 
-    // Keep EVM list state fresh when user opens/switches tabs.
     if (tab === 'evm') renderEvmWallets();
-    if (tab === 'solana') refreshSolanaWalletDetection();
+    if (tab === 'solana') renderSolanaWallets();
 }
 
 function openWalletModal(tab = 'evm') {
@@ -2271,31 +2443,8 @@ connectSolanaBtn.addEventListener('click', () => {
     openWalletModal('solana');
 });
 
-document.querySelectorAll('#quantum-wallet-modal .wallet-option[data-wallet]').forEach(opt => {
-    opt.addEventListener('click', async () => {
-        const walletType = opt.getAttribute('data-wallet');
-        if (walletType === 'phantom') {
-            sounds.play('error');
-            log(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported, 'error');
-            return;
-        }
-        closeWalletModal();
-        await connectSolanaWallet(walletType);
-    });
-});
-
 function refreshSolanaWalletDetection() {
-    const items = document.querySelectorAll('#quantum-wallet-modal .wallet-option[data-wallet]');
-    items.forEach(el => {
-        const walletType = el.getAttribute('data-wallet');
-        const provider = getSolanaWalletProvider(walletType);
-        const detected = !!provider;
-
-        el.classList.toggle('not-detected', !detected);
-        el.toggleAttribute('aria-disabled', !detected);
-        el.style.pointerEvents = detected ? '' : 'none';
-        el.title = detected ? '' : 'Wallet not detected';
-    });
+    renderSolanaWallets();
 }
 
 function getSolanaWalletProvider(walletType) {

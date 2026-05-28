@@ -1406,6 +1406,33 @@ footer {
     flex: 0 0 28px;
 }
 
+.wallet-icon-stack {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.wallet-icon-stack .wallet-icon {
+    position: absolute;
+    inset: 0;
+}
+
+.wallet-icon-stack .wallet-mark {
+    display: none;
+}
+
+.wallet-icon-stack.icon-failed img {
+    display: none;
+}
+
+.wallet-icon-stack.icon-failed .wallet-mark {
+    display: inline-flex;
+}
+
 .wallet-mark {
     display: inline-flex;
     align-items: center;
@@ -1590,6 +1617,12 @@ footer {
     width: 32px;
     height: 32px;
     border-radius: 8px;
+}
+
+.wallet-option .wallet-icon-stack {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
 }
 
 .wallet-copy {
