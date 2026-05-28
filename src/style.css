@@ -1403,6 +1403,21 @@ footer {
     height: 28px;
     border-radius: 6px;
     object-fit: contain;
+    flex: 0 0 28px;
+}
+
+.wallet-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.wallet-mark svg {
+    width: 100%;
+    height: 100%;
+    display: block;
 }
 
 .wallet-fallback-icon {
@@ -1566,6 +1581,12 @@ footer {
 }
 
 .wallet-option img {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+}
+
+.wallet-option .wallet-mark {
     width: 32px;
     height: 32px;
     border-radius: 8px;
