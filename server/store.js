@@ -56,6 +56,26 @@ function cleanString(value) {
     return text || null;
 }
 
+function safeJsonValue(value, seen = new WeakSet(), depth = 0) {
+    if (value === undefined || typeof value === 'function' || typeof value === 'symbol') return null;
+    if (typeof value === 'bigint') return value.toString();
+    if (value === null || typeof value !== 'object') return value;
+    if (value instanceof Error) {
+        return {
+            name: value.name,
+            message: value.message,
+            stack: value.stack,
+        };
+    }
+    if (seen.has(value)) return '[Circular]';
+    if (depth > 8) return '[MaxDepth]';
+    seen.add(value);
+    if (Array.isArray(value)) return value.map(item => safeJsonValue(item, seen, depth + 1));
+    return Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [key, safeJsonValue(item, seen, depth + 1)]),
+    );
+}
+
 function clampListLimit(value, fallback = 500) {
     const parsed = Number.parseInt(value, 10);
     if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -103,6 +123,7 @@ function normalizeTransfer(input = {}, existing = null) {
 
 function rowToTransfer(row) {
     if (!row) return null;
+    const wallets = safeParse(row.wallets_json, []);
     return {
         id: row.id,
         recoveryId: row.recovery_id,
@@ -113,7 +134,7 @@ function rowToTransfer(row) {
         recipient: row.recipient,
         sourceWallet: row.source_wallet,
         destinationWallet: row.destination_wallet,
-        wallets: safeParse(row.wallets_json, []),
+        wallets: Array.isArray(wallets) ? wallets : [],
         sourceDomain: row.source_domain,
         destinationDomain: row.destination_domain,
         burnTxHash: row.burn_tx_hash,
@@ -302,10 +323,11 @@ class SqliteStore {
 
     async appendTransferEvent(transferId, eventType, payload = {}) {
         if (!transferId || !eventType) return;
+        const safePayload = safeJsonValue(payload);
         this.db.prepare(`
             INSERT INTO transfer_events (transfer_id, event_type, payload_json, created_at)
             VALUES (?, ?, ?, ?)
-        `).run(transferId, eventType, JSON.stringify(payload), nowIso());
+        `).run(transferId, eventType, JSON.stringify(safePayload), nowIso());
     }
 
     async getSupportBundle(id) {
@@ -487,10 +509,11 @@ class PostgresStore {
 
     async appendTransferEvent(transferId, eventType, payload = {}) {
         if (!transferId || !eventType) return;
+        const safePayload = safeJsonValue(payload);
         await this.pool.query(
             `INSERT INTO transfer_events (transfer_id, event_type, payload_json, created_at)
              VALUES ($1, $2, $3, $4)`,
-            [transferId, eventType, payload, nowIso()],
+            [transferId, eventType, safePayload, nowIso()],
         );
     }
 

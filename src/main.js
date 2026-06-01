@@ -181,6 +181,9 @@ kit.on('*', async (event) => {
             lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.BURN_SUBMITTED),
         });
         log(`Recovery checkpoint saved for burn ${shortHash(txHash)}.`, 'success');
+        if (activeBridgeContext.useForwarder) {
+            log('Burn confirmed. Waiting for Circle attestation and Forwarder mint on the destination chain...', 'loading');
+        }
     }
     if (activeBridgeContext) {
         const lowerMethod = methodName.toLowerCase();
@@ -551,6 +554,26 @@ function escapeHtml(value) {
         .replace(/'/g, '&#039;');
 }
 
+function safeTelemetryValue(value, seen = new WeakSet(), depth = 0) {
+    if (value === undefined || typeof value === 'function' || typeof value === 'symbol') return null;
+    if (typeof value === 'bigint') return value.toString();
+    if (value === null || typeof value !== 'object') return value;
+    if (value instanceof Error) {
+        return {
+            name: value.name,
+            message: value.message,
+            stack: value.stack,
+        };
+    }
+    if (seen.has(value)) return '[Circular]';
+    if (depth > 6) return '[MaxDepth]';
+    seen.add(value);
+    if (Array.isArray(value)) return value.slice(0, 50).map(item => safeTelemetryValue(item, seen, depth + 1));
+    return Object.fromEntries(
+        Object.entries(value).slice(0, 80).map(([key, item]) => [key, safeTelemetryValue(item, seen, depth + 1)]),
+    );
+}
+
 function nowIso() {
     return new Date().toISOString();
 }
@@ -742,8 +765,9 @@ async function recordTransferEvent(transferId, type, payload = {}) {
     if (!transferId) return;
     try {
         await flushQueuedTransferSyncs();
+        const safePayload = safeTelemetryValue(payload);
         const enrichedPayload = {
-            ...payload,
+            ...(safePayload && typeof safePayload === 'object' && !Array.isArray(safePayload) ? safePayload : { value: safePayload }),
             transferContext: activeBridgeContext?.id === transferId ? activeBridgeContext : payload.transferContext,
         };
         let response = await fetch(transferApiUrl(`/api/transfers/${encodeURIComponent(transferId)}/events`), {
@@ -911,6 +935,7 @@ async function syncGlobalTransfers() {
         if (!response.ok) throw new Error(`Transfer API ${response.status}`);
         const result = await response.json();
         globalActivityHistory = (result.transfers || [])
+            .filter(transfer => transfer.from && transfer.to)
             .map(transfer => transferToActivity(transfer, { type: 'Teleport' }))
             .filter(Boolean);
         if (currentActivityScope === 'global') renderActivity();

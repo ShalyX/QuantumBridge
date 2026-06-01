@@ -210,20 +210,61 @@ const server = http.createServer(async (req, res) => {
             let transfer = await store.getTransfer(eventId);
             if (!transfer) {
                 const context = body.payload?.transferContext || body.transferContext || {};
-                transfer = await store.upsertTransfer({
-                    ...context,
+                const fallbackTransfer = {
                     id: eventId,
                     recoveryId: context.recoveryId || eventId,
                     state: context.state || 'created',
+                    from: context.from || null,
+                    to: context.to || null,
+                    amount: context.amount || null,
+                    sourceWallet: context.sourceWallet || null,
+                    destinationWallet: context.destinationWallet || null,
+                    recipient: context.recipient || null,
+                    wallets: Array.isArray(context.wallets) ? context.wallets : [],
+                    sourceDomain: context.sourceDomain ?? null,
+                    destinationDomain: context.destinationDomain ?? null,
+                    burnTxHash: context.burnTxHash || null,
+                    mintTxHash: context.mintTxHash || null,
+                    useForwarder: Boolean(context.useForwarder),
                     metadata: {
                         ...(context.metadata || {}),
                         eventCreatedBeforeTransfer: true,
                     },
+                };
+                try {
+                    transfer = await store.upsertTransfer(fallbackTransfer);
+                } catch (error) {
+                    console.warn('[QuantumBridge API] event fallback transfer creation failed', {
+                        eventId,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                    transfer = await store.upsertTransfer({
+                        id: eventId,
+                        recoveryId: eventId,
+                        state: 'created',
+                        metadata: { eventCreatedBeforeTransfer: true, eventFallbackMinimal: true },
+                    });
+                }
+            }
+            const payload = body.payload || body;
+            try {
+                await store.appendTransferEvent(transfer.id, body.type || 'transfer.event', payload);
+            } catch (error) {
+                console.warn('[QuantumBridge API] transfer event append failed', {
+                    transferId: transfer.id,
+                    eventType: body.type || 'transfer.event',
+                    error: error instanceof Error ? error.message : String(error),
                 });
             }
-            await store.appendTransferEvent(transfer.id, body.type || 'transfer.event', body.payload || body);
             if (String(body.type || '').includes('failed') || String(body.type || '').includes('error')) {
-                await captureFailureTelemetry(transfer, body.payload || body, 'api.event');
+                try {
+                    await captureFailureTelemetry(transfer, payload, 'api.event');
+                } catch (error) {
+                    console.warn('[QuantumBridge API] failure telemetry append failed', {
+                        transferId: transfer.id,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                }
             }
             sendJson(res, 201, { ok: true });
             return;
