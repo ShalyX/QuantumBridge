@@ -170,7 +170,14 @@ const server = http.createServer(async (req, res) => {
 
         if (req.method === 'GET' && url.pathname === '/api/transfers') {
             const wallet = url.searchParams.get('wallet');
-            sendJson(res, 200, { transfers: await store.listTransfers({ wallet }) });
+            const requestedScope = url.searchParams.get('scope');
+            const scope = requestedScope === 'global' || (!requestedScope && !wallet) ? 'global' : 'wallet';
+            const limit = Number.parseInt(url.searchParams.get('limit') || '500', 10);
+            const transfers = await store.listTransfers({
+                wallet: scope === 'global' ? null : wallet,
+                limit,
+            });
+            sendJson(res, 200, { transfers, scope, limit });
             return;
         }
 

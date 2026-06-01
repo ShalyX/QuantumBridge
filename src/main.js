@@ -135,6 +135,7 @@ const kit = new AppKit();
 let transferLedgerCache = [];
 let pendingRecoveriesCache = [];
 let activityHistory = [];
+let globalActivityHistory = [];
 let walletViewGeneration = 0;
 
 kit.on('*', async (event) => {
@@ -291,6 +292,7 @@ const sounds = new QuantumSoundEngine();
 let currentStatusFilter = 'all';
 let currentChainFilter = 'all';
 let currentActivitySearch = '';
+let currentActivityScope = 'global';
 
 // DOM Elements
 const connectEvmBtn = document.getElementById('connect-evm');
@@ -325,8 +327,10 @@ const confidenceScoreEl = document.getElementById('confidence-score');
 const estArrivalEl = document.getElementById('est-arrival');
 const routeHealthPill = document.getElementById('route-health-pill');
 const activityFilterBtns = Array.from(document.querySelectorAll('.filter-btn[data-filter]'));
+const activityScopeBtns = Array.from(document.querySelectorAll('[data-activity-scope]'));
 const chainFilterSelect = document.getElementById('chain-filter');
 const activitySearchInput = document.getElementById('activity-search');
+const clearActivityBtn = document.getElementById('clear-activity');
 const productTabs = Array.from(document.querySelectorAll('[data-app-tab]'));
 const productPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
 const tabSwitchers = Array.from(document.querySelectorAll('[data-switch-tab]'));
@@ -790,6 +794,34 @@ function recordTransferFailure(transferId, details = {}) {
     });
 }
 
+function transferToActivity(transfer, { type = 'Teleport' } = {}) {
+    if (!transfer) return null;
+    const lifecycleState = transfer.state || (transfer.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : TRANSFER_STATES.CREATED);
+    const id = transfer.id || transfer.recoveryId || transfer.burnTxHash || transfer.mintTxHash;
+    return {
+        id: id || `${transfer.from || 'unknown'}-${transfer.to || 'unknown'}-${transfer.updatedAt || transfer.createdAt || nowIso()}`,
+        recoveryId: transfer.recoveryId || transfer.id || transfer.burnTxHash || null,
+        timestamp: transfer.createdAt || transfer.updatedAt || nowIso(),
+        updatedAt: transfer.updatedAt || transfer.createdAt || nowIso(),
+        type,
+        from: transfer.from,
+        to: transfer.to,
+        amount: transfer.amount || 'unknown',
+        status: getTransferStatusBucket(lifecycleState),
+        txHash: transfer.mintTxHash || null,
+        mintTxHash: transfer.mintTxHash || null,
+        burnTxHash: transfer.burnTxHash || null,
+        sourceWallet: transfer.sourceWallet || null,
+        destinationWallet: transfer.destinationWallet || null,
+        recipient: transfer.recipient || null,
+        wallets: Array.isArray(transfer.wallets) ? transfer.wallets : [],
+        alreadyMinted: Boolean(transfer.alreadyMinted),
+        lifecycleState,
+        lifecycleLabel: getTransferStateLabel(lifecycleState),
+        errorMessage: transfer.errorMessage || null,
+    };
+}
+
 function mergeBackendTransfersIntoLocal(transfers) {
     if (!Array.isArray(transfers) || transfers.length === 0) return;
     for (const transfer of transfers) {
@@ -806,6 +838,7 @@ function mergeBackendTransfersIntoLocal(transfers) {
         upsertTransferRecord(localTransfer, { sync: false });
         if (transfer.from && transfer.to) {
             addActivity('Teleport', transfer.from, transfer.to, transfer.amount || 'unknown', getTransferStatusBucket(transfer.state), transfer.mintTxHash || null, {
+                id: transfer.id || transfer.recoveryId || transfer.burnTxHash,
                 recoveryId: transfer.recoveryId || transfer.id,
                 burnTxHash: transfer.burnTxHash || null,
                 sourceWallet: transfer.sourceWallet || null,
@@ -816,6 +849,8 @@ function mergeBackendTransfersIntoLocal(transfers) {
                 lifecycleState: transfer.state,
                 lifecycleLabel: getTransferStateLabel(transfer.state),
                 errorMessage: transfer.errorMessage || null,
+                timestamp: transfer.createdAt || transfer.updatedAt || nowIso(),
+                updatedAt: transfer.updatedAt || transfer.createdAt || nowIso(),
             });
         }
         if (transfer.burnTxHash && (transfer.state === TRANSFER_STATES.COMPLETED || transfer.state === TRANSFER_STATES.ALREADY_CLAIMED)) {
@@ -838,7 +873,10 @@ async function syncServerTransfersForConnectedWallets() {
         session.evm?.address,
         session.solana?.address,
     ].filter(Boolean).map(String)));
-    if (wallets.length === 0) return;
+    if (wallets.length === 0) {
+        if (currentActivityScope === 'mine') renderActivity();
+        return;
+    }
     const viewGeneration = walletViewGeneration;
     try {
         const results = await Promise.all(wallets.map(async wallet => {
@@ -861,6 +899,22 @@ async function syncServerTransfersForConnectedWallets() {
         }
     } catch (error) {
         console.warn('[QuantumBridge] Could not load backend transfers; local cache remains active.', error);
+    }
+}
+
+async function syncGlobalTransfers() {
+    try {
+        const response = await fetch(transferApiUrl('/api/transfers?scope=global&limit=100'), {
+            cache: 'no-store',
+        });
+        if (!response.ok) throw new Error(`Transfer API ${response.status}`);
+        const result = await response.json();
+        globalActivityHistory = (result.transfers || [])
+            .map(transfer => transferToActivity(transfer, { type: 'Teleport' }))
+            .filter(Boolean);
+        if (currentActivityScope === 'global') renderActivity();
+    } catch (error) {
+        console.warn('[QuantumBridge] Could not load global transfer feed.', error);
     }
 }
 
@@ -3142,9 +3196,22 @@ function getActivityExplorerTarget(item) {
     return null;
 }
 
+function hasKnownWalletForActivity() {
+    const session = readWalletSession();
+    return Boolean(evmAccount || solanaAccount || session.evm?.address || session.solana?.address);
+}
+
+function getCurrentActivitySource() {
+    return currentActivityScope === 'global' ? globalActivityHistory : activityHistory;
+}
+
+function getActivityById(id) {
+    return getCurrentActivitySource().find(entry => String(entry.id) === String(id));
+}
+
 function getVisibleActivities() {
     const query = currentActivitySearch.trim().toLowerCase();
-    return activityHistory.filter(item => {
+    return getCurrentActivitySource().filter(item => {
         const status = item.status || 'pending';
         const statusMatches = currentStatusFilter === 'all' || status === currentStatusFilter;
         const chainMatches = currentChainFilter === 'all' ||
@@ -3365,10 +3432,22 @@ function addActivity(type, from, to, amount, status, txHash = null, extra = {}) 
 function renderActivity() {
     const list = document.getElementById('activity-list');
     if (!list) return;
+    activityScopeBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.activityScope === currentActivityScope);
+    });
+    if (clearActivityBtn) {
+        clearActivityBtn.hidden = currentActivityScope === 'global';
+    }
+    const activitySource = getCurrentActivitySource();
     const visibleActivities = getVisibleActivities();
-    if (activityHistory.length === 0) {
+    if (activitySource.length === 0) {
+        const emptyMessage = currentActivityScope === 'global'
+            ? 'No global bridge activity indexed yet.'
+            : (hasKnownWalletForActivity()
+                ? 'No transfers found for connected wallets yet.'
+                : 'Connect a wallet to load your transfer history.');
         list.classList.add('empty-portal');
-        list.innerHTML = '<div class="empty-state">No recent activity detected.</div>';
+        list.innerHTML = `<div class="empty-state">${escapeHtml(emptyMessage)}</div>`;
         return;
     }
     if (visibleActivities.length === 0) {
@@ -3412,7 +3491,7 @@ document.getElementById('activity-list')?.addEventListener('click', async (event
     if (event.target.closest('a')) return;
     const itemEl = event.target.closest('.activity-item[data-activity-id]');
     if (!itemEl) return;
-    const item = activityHistory.find(entry => String(entry.id) === itemEl.dataset.activityId);
+    const item = getActivityById(itemEl.dataset.activityId);
     openTransactionDetails(item);
 });
 
@@ -3422,8 +3501,20 @@ document.getElementById('activity-list')?.addEventListener('keydown', (event) =>
     const itemEl = event.target.closest('.activity-item[data-activity-id]');
     if (!itemEl) return;
     event.preventDefault();
-    const item = activityHistory.find(entry => String(entry.id) === itemEl.dataset.activityId);
+    const item = getActivityById(itemEl.dataset.activityId);
     openTransactionDetails(item);
+});
+
+activityScopeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        currentActivityScope = btn.dataset.activityScope || 'mine';
+        renderActivity();
+        if (currentActivityScope === 'global') {
+            syncGlobalTransfers();
+        } else {
+            syncServerTransfersForConnectedWallets();
+        }
+    });
 });
 
 activityFilterBtns.forEach(btn => {
@@ -3469,7 +3560,7 @@ startEstimatedArrivalMonitor(originChainSelect?.value, destinationChainSelect?.v
 renderPendingRecoveries();
 renderRecoveryBanner();
 
-document.getElementById('clear-activity').addEventListener('click', () => { activityHistory = []; saveActivity(); });
+clearActivityBtn?.addEventListener('click', () => { activityHistory = []; saveActivity(); });
 
 log("QuantumBridge Core Systems Online.");
 log("Awaiting Fleet Connection...");
@@ -3478,5 +3569,7 @@ if (startupRecoveries.length > 0) {
     log(`${startupRecoveries.length} pending CCTP recovery checkpoint${startupRecoveries.length === 1 ? '' : 's'} detected. Use Resume all when wallets are connected.`, 'loading');
 }
 syncServerTransfersForConnectedWallets();
+syncGlobalTransfers();
+window.setInterval(syncGlobalTransfers, 30000);
 scheduleWalletSessionRestore();
 window.addEventListener('load', scheduleWalletSessionRestore);

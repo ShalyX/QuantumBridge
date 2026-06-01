@@ -56,6 +56,12 @@ function cleanString(value) {
     return text || null;
 }
 
+function clampListLimit(value, fallback = 500) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.min(parsed, 500);
+}
+
 function normalizeTransfer(input = {}, existing = null) {
     const timestamp = nowIso();
     const id = existing?.id || cleanString(input.id || input.recoveryId || input.recovery_id || input.burnTxHash || input.burn_tx_hash) ||
@@ -277,8 +283,9 @@ class SqliteStore {
         return this.upsertTransfer({ ...(existing ? rowToTransfer(existing) : { id }), ...patch, id: existing?.id || id });
     }
 
-    async listTransfers({ wallet } = {}) {
-        const rows = this.db.prepare('SELECT * FROM transfers ORDER BY updated_at DESC LIMIT 500').all();
+    async listTransfers({ wallet, limit = 500 } = {}) {
+        const safeLimit = clampListLimit(limit);
+        const rows = this.db.prepare('SELECT * FROM transfers ORDER BY updated_at DESC LIMIT ?').all(safeLimit);
         return filterTransfersByWallet(rows.map(rowToTransfer), wallet);
     }
 
@@ -461,8 +468,9 @@ class PostgresStore {
         return this.upsertTransfer({ ...(existing ? rowToTransfer(existing) : { id }), ...patch, id: existing?.id || id });
     }
 
-    async listTransfers({ wallet } = {}) {
-        const result = await this.pool.query('SELECT * FROM transfers ORDER BY updated_at DESC LIMIT 500');
+    async listTransfers({ wallet, limit = 500 } = {}) {
+        const safeLimit = clampListLimit(limit);
+        const result = await this.pool.query('SELECT * FROM transfers ORDER BY updated_at DESC LIMIT $1', [safeLimit]);
         return filterTransfersByWallet(result.rows.map(rowToTransfer), wallet);
     }
 

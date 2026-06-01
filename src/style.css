@@ -1713,6 +1713,41 @@ footer {
     flex-wrap: wrap;
 }
 
+.activity-scope {
+    display: inline-flex;
+    padding: 0.18rem;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.scope-btn {
+    border: none;
+    border-radius: 6px;
+    padding: 0.32rem 0.7rem;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    font-weight: 800;
+    cursor: pointer;
+    transition: var(--transition);
+    white-space: nowrap;
+}
+
+.scope-btn:hover {
+    color: var(--text-primary);
+}
+
+.scope-btn.active {
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    color: #fff;
+    box-shadow: 0 8px 20px rgba(124, 58, 237, 0.18);
+}
+
+.light-theme .activity-scope {
+    background: rgba(255, 255, 255, 0.62);
+}
+
 .activity-search {
     flex: 1 1 220px;
     min-width: min(100%, 220px);
