@@ -514,6 +514,7 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     noCctpMessage: 'No CCTP burn message was found for this transaction.',
     forwarderFeeTooHigh: 'This transfer is below the current Circle Forwarder fee for this route. Increase the amount and try again.',
     solanaAtaCreation: 'Solana token account setup failed. Use Backpack or Solflare, or paste a Solana destination that already has a devnet USDC token account.',
+    solanaMintPaused: 'Solana mint could not complete. Your burn is saved; open Recovery and resume this transfer with Backpack or Solflare.',
     simulationFailed: 'The destination chain rejected this mint. Try Resume transfer again, or use a supported wallet for this route.',
     genericRecoverable: 'Transfer paused. Resume it from the recovery panel when wallets are connected.',
 });
@@ -1107,11 +1108,23 @@ function isNonceAlreadyUsedError(error) {
     return getErrorText(error).toLowerCase().includes('nonce already used');
 }
 
+function isSolanaPreflightOrDecoderError(text) {
+    const lower = String(text || '').toLowerCase();
+    return lower.includes('unknown blockchain error on solana') && (
+        lower.includes('solana error #-32002') ||
+        lower.includes('solanaerror -32002') ||
+        lower.includes('7050008') ||
+        lower.includes('decode this error by running') ||
+        lower.includes('__code=-32002')
+    );
+}
+
 function getProductErrorMessage(error) {
     const text = getErrorText(error) || String(error?.message || error || '');
     const lower = text.toLowerCase();
 
     if (isNonceAlreadyUsedError(error)) return PRODUCT_ERROR_MESSAGES.alreadyClaimed;
+    if (isSolanaPreflightOrDecoderError(text)) return PRODUCT_ERROR_MESSAGES.solanaMintPaused;
     if (
         lower.includes('maxfeemustbelessthanamount') ||
         lower.includes('max fee must be less than amount') ||
