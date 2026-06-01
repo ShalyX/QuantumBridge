@@ -520,6 +520,7 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     solanaAtaCreation: 'Solana token account setup failed. Use Backpack or Solflare, or paste a Solana destination that already has a devnet USDC token account.',
     solanaMintPaused: 'Solana mint could not complete. Your burn is saved; open Recovery and resume this transfer with Backpack or Solflare.',
     simulationFailed: 'The destination chain rejected this mint. Try Resume transfer again, or use a supported wallet for this route.',
+    appAssetUnavailable: 'App update asset failed to load. Refresh once and retry; your transfer will remain recoverable if the burn already happened.',
     genericRecoverable: 'Transfer paused. Resume it from the recovery panel when wallets are connected.',
 });
 
@@ -1193,6 +1194,9 @@ function getProductErrorMessage(error) {
     }
     if (lower.includes('messageexpired') || (lower.includes('message') && lower.includes('expired')) || lower.includes('re-attest')) {
         return PRODUCT_ERROR_MESSAGES.attestationExpired;
+    }
+    if (lower.includes('failed to fetch dynamically imported module') || lower.includes('/assets/ccip-')) {
+        return PRODUCT_ERROR_MESSAGES.appAssetUnavailable;
     }
     if (lower.includes('looks like an evm transaction hash')) return PRODUCT_ERROR_MESSAGES.solanaHashMismatch;
     if (lower.includes('looks like a solana signature')) return PRODUCT_ERROR_MESSAGES.evmHashMismatch;

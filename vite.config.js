@@ -16,7 +16,14 @@ export default defineConfig({
     }
   },
   build: {
-    target: 'esnext'
+    target: 'esnext',
+    rollupOptions: {
+      output: {
+        // Keep viem's CCIP helper in the main bundle so bridge flows do not
+        // depend on fetching a late dynamic chunk from protected preview URLs.
+        inlineDynamicImports: true
+      }
+    }
   },
   optimizeDeps: {
     // We patch adapter code in node_modules during debugging; force re-optimization so
