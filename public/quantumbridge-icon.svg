@@ -3,7 +3,9 @@
   <desc id="desc">QuantumBridge app icon with cyan quantum orbit mark on a deep-space background.</desc>
   <rect width="512" height="512" rx="116" fill="#05060F"/>
   <rect x="16" y="16" width="480" height="480" rx="104" stroke="#06B6D4" stroke-opacity="0.2" stroke-width="8"/>
-  <circle cx="256" cy="256" r="166" stroke="#06B6D4" stroke-width="34" stroke-dasharray="66 62" stroke-linecap="round"/>
-  <circle cx="256" cy="256" r="100" stroke="#06B6D4" stroke-width="34" stroke-dasharray="38 38" stroke-linecap="round"/>
-  <circle cx="256" cy="256" r="42" fill="#06B6D4"/>
+  <g transform="translate(64 64) scale(16)">
+    <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="#06B6D4" stroke-width="2" stroke-dasharray="4 4"/>
+    <path d="M12 18C15.3137 18 18 15.3137 18 12C18 8.68629 15.3137 6 12 6C8.68629 6 6 8.68629 6 12C6 15.3137 8.68629 18 12 18Z" stroke="#06B6D4" stroke-width="2" stroke-dasharray="2 2"/>
+    <circle cx="12" cy="12" r="2" fill="#06B6D4"/>
+  </g>
 </svg>

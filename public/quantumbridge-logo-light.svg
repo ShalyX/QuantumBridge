@@ -1,10 +1,10 @@
 <svg width="720" height="112" viewBox="0 0 720 112" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">QuantumBridge logo for light backgrounds</title>
   <desc id="desc">QuantumBridge wordmark with quantum orbit bridge mark for light surfaces.</desc>
-  <g transform="translate(16 16)">
-    <circle cx="40" cy="40" r="32" stroke="#0891B2" stroke-width="8" stroke-dasharray="14 14" stroke-linecap="round"/>
-    <circle cx="40" cy="40" r="20" stroke="#0891B2" stroke-width="8" stroke-dasharray="8 8" stroke-linecap="round"/>
-    <circle cx="40" cy="40" r="9" fill="#0891B2"/>
+  <g transform="translate(16 16) scale(3.333333)">
+    <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="#0891B2" stroke-width="2" stroke-dasharray="4 4"/>
+    <path d="M12 18C15.3137 18 18 15.3137 18 12C18 8.68629 15.3137 6 12 6C8.68629 6 6 8.68629 6 12C6 15.3137 8.68629 18 12 18Z" stroke="#0891B2" stroke-width="2" stroke-dasharray="2 2"/>
+    <circle cx="12" cy="12" r="2" fill="#0891B2"/>
   </g>
   <text x="116" y="75" font-family="Inter, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="0">
     <tspan fill="#1E1B4B">Quantum</tspan><tspan fill="#0891B2">Bridge</tspan>
