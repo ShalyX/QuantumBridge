@@ -67,3 +67,8 @@ Health check:
 ```text
 /api/health
 ```
+
+Brand and launch materials:
+
+- `docs/brand-kit.md`
+- `docs/launch-kit.md`
