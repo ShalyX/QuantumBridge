@@ -88,6 +88,17 @@ function getTransferIdFromPath(pathname, suffix = '') {
     return decodeURIComponent(rawId);
 }
 
+function inferRouteFromTransferId(id = '') {
+    const parts = String(id).toLowerCase().split('-');
+    const chains = new Set(['arc', 'solana', 'ethereum']);
+    const fromIndex = parts.findIndex(part => chains.has(part));
+    if (fromIndex === -1 || !chains.has(parts[fromIndex + 1])) return {};
+    return {
+        from: parts[fromIndex],
+        to: parts[fromIndex + 1],
+    };
+}
+
 function contentTypeFor(filePath) {
     const ext = path.extname(filePath).toLowerCase();
     return {
@@ -173,6 +184,7 @@ const server = http.createServer(async (req, res) => {
             const requestedScope = url.searchParams.get('scope');
             const scope = requestedScope === 'global' || (!requestedScope && !wallet) ? 'global' : 'wallet';
             const limit = Number.parseInt(url.searchParams.get('limit') || '500', 10);
+            await store.backfillTransferContextsFromEvents?.();
             const transfers = await store.listTransfers({
                 wallet: scope === 'global' ? null : wallet,
                 limit,
@@ -210,12 +222,13 @@ const server = http.createServer(async (req, res) => {
             let transfer = await store.getTransfer(eventId);
             if (!transfer) {
                 const context = body.payload?.transferContext || body.transferContext || {};
+                const inferredRoute = inferRouteFromTransferId(eventId);
                 const fallbackTransfer = {
                     id: eventId,
                     recoveryId: context.recoveryId || eventId,
                     state: context.state || 'created',
-                    from: context.from || null,
-                    to: context.to || null,
+                    from: context.from || inferredRoute.from || null,
+                    to: context.to || inferredRoute.to || null,
                     amount: context.amount || null,
                     sourceWallet: context.sourceWallet || null,
                     destinationWallet: context.destinationWallet || null,

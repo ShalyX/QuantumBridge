@@ -177,6 +177,7 @@ kit.on('*', async (event) => {
             destinationWallet: activeBridgeContext.destinationWallet,
             recipient: activeBridgeContext.recipient,
             wallets: activeBridgeContext.wallets,
+            useForwarder: activeBridgeContext.useForwarder,
             lifecycleState: TRANSFER_STATES.BURN_SUBMITTED,
             lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.BURN_SUBMITTED),
         });
@@ -713,6 +714,38 @@ function normalizeBackendTransferPayload(record) {
     };
 }
 
+function buildTransferEventContext(record = activeBridgeContext) {
+    if (!record?.id) return null;
+    const from = record.from || record.fromChain || null;
+    const to = record.to || record.toChain || null;
+    const sourceWallet = record.sourceWallet || (from === 'solana' ? solanaAccount : evmAccount) || null;
+    const destinationWallet = record.destinationWallet || (to === 'solana' ? solanaAccount : evmAccount) || null;
+    return {
+        id: record.id,
+        recoveryId: record.recoveryId || record.id,
+        from,
+        to,
+        amount: record.amount || null,
+        recipient: record.recipient || null,
+        sourceWallet,
+        destinationWallet,
+        wallets: Array.from(new Set([
+            sourceWallet,
+            destinationWallet,
+            record.recipient,
+            ...(Array.isArray(record.wallets) ? record.wallets : []),
+        ].filter(Boolean).map(String))),
+        sourceDomain: record.sourceDomain ?? CCTP_DOMAINS[from],
+        destinationDomain: record.destinationDomain ?? CCTP_DOMAINS[to],
+        burnTxHash: record.burnTxHash || null,
+        mintTxHash: record.mintTxHash || null,
+        state: record.state || null,
+        useForwarder: Boolean(record.useForwarder),
+        createdAt: record.createdAt || null,
+        manualDestinationAddress: record.manualDestinationAddress || null,
+    };
+}
+
 function queueTransferSync(record) {
     if (!record?.id) return;
     pendingTransferSyncs.set(record.id, normalizeBackendTransferPayload(record));
@@ -755,7 +788,10 @@ async function syncTransferToBackend(record, mode = 'upsert') {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         });
-        if (!response.ok) throw new Error(`Transfer API ${response.status}`);
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '');
+            throw new Error(`Transfer API ${response.status}${errorText ? `: ${errorText.slice(0, 300)}` : ''}`);
+        }
     } catch (error) {
         console.warn('[QuantumBridge] Transfer API sync failed; local cache remains active.', error);
     }
@@ -766,9 +802,12 @@ async function recordTransferEvent(transferId, type, payload = {}) {
     try {
         await flushQueuedTransferSyncs();
         const safePayload = safeTelemetryValue(payload);
+        const transferContext = activeBridgeContext?.id === transferId
+            ? buildTransferEventContext(activeBridgeContext)
+            : (payload.transferContext || null);
         const enrichedPayload = {
             ...(safePayload && typeof safePayload === 'object' && !Array.isArray(safePayload) ? safePayload : { value: safePayload }),
-            transferContext: activeBridgeContext?.id === transferId ? activeBridgeContext : payload.transferContext,
+            transferContext,
         };
         let response = await fetch(transferApiUrl(`/api/transfers/${encodeURIComponent(transferId)}/events`), {
             method: 'POST',
@@ -844,6 +883,9 @@ function transferToActivity(transfer, { type = 'Teleport' } = {}) {
         lifecycleState,
         lifecycleLabel: getTransferStateLabel(lifecycleState),
         errorMessage: transfer.errorMessage || null,
+        useForwarder: Boolean(transfer.useForwarder),
+        lastCheckedAt: transfer.lastCheckedAt || null,
+        metadata: transfer.metadata || {},
     };
 }
 
@@ -871,6 +913,7 @@ function mergeBackendTransfersIntoLocal(transfers) {
                 recipient: transfer.recipient || null,
                 wallets: transfer.wallets || [],
                 alreadyMinted: Boolean(transfer.alreadyMinted),
+                useForwarder: Boolean(transfer.useForwarder),
                 lifecycleState: transfer.state,
                 lifecycleLabel: getTransferStateLabel(transfer.state),
                 errorMessage: transfer.errorMessage || null,
@@ -1666,6 +1709,49 @@ async function fetchCctpAttestation(sourceDomain, burnTxHash) {
         eventNonce: message.eventNonce,
         raw: message,
     };
+}
+
+function sleep(ms) {
+    return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+function getTransferSnapshot(transferId) {
+    if (activeBridgeContext?.id === transferId) return activeBridgeContext;
+    return readTransferLedger().find(item => item.id === transferId || item.recoveryId === transferId) || null;
+}
+
+function isForwarderConfirmedMessage(message) {
+    const forwardState = String(message?.forwardState || '').toUpperCase();
+    return Boolean(message?.forwardTxHash) || forwardState === 'CONFIRMED';
+}
+
+async function waitForForwarderCompletion(transferId, { timeoutMs = 8 * 60 * 1000, intervalMs = 2500 } = {}) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        const snapshot = getTransferSnapshot(transferId);
+        if (!snapshot?.burnTxHash || snapshot.sourceDomain === undefined || snapshot.sourceDomain === null) {
+            await sleep(500);
+            continue;
+        }
+        try {
+            const attestationData = await fetchCctpAttestation(snapshot.sourceDomain, snapshot.burnTxHash);
+            const message = attestationData.raw || {};
+            if (isForwarderConfirmedMessage(message)) {
+                return {
+                    state: 'success',
+                    transactionHash: message.forwardTxHash || snapshot.mintTxHash || null,
+                    forwarderFastConfirmed: true,
+                };
+            }
+        } catch (error) {
+            const text = getErrorText(error).toLowerCase();
+            if (!text.includes('indexed') && !text.includes('not ready') && !text.includes('pending')) {
+                console.warn('[QuantumBridge] Forwarder completion poll skipped once.', error);
+            }
+        }
+        await sleep(intervalMs);
+    }
+    throw new Error('Forwarder completion watcher timed out');
 }
 
 function getAttestationExpirationBlock(attestationData) {
@@ -2996,6 +3082,7 @@ teleportBtn.addEventListener('click', async () => {
             destinationWallet,
             recipient,
             wallets: activeBridgeContext.wallets,
+            useForwarder,
             lifecycleState: TRANSFER_STATES.CREATED,
             lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.CREATED),
         });
@@ -3022,7 +3109,16 @@ teleportBtn.addEventListener('click', async () => {
             : "Quantum tunnel stabilized. Commencing transfer..."
         );
         startEstimatedArrivalMonitor(from, to);
-        const result = await kit.bridge(bridgeParams);
+        const bridgePromise = kit.bridge(bridgeParams);
+        const result = useForwarder
+            ? await Promise.race([
+                bridgePromise,
+                waitForForwarderCompletion(activeBridgeContext.id).catch(error => {
+                    console.warn('[QuantumBridge] Forwarder fast completion watcher fell back to SDK result.', error);
+                    return bridgePromise;
+                }),
+            ])
+            : await bridgePromise;
 
         if (result.state === 'success') {
             sounds.play('success');
@@ -3049,6 +3145,7 @@ teleportBtn.addEventListener('click', async () => {
                 destinationWallet,
                 recipient,
                 wallets: activeBridgeContext?.wallets || [],
+                useForwarder,
                 lifecycleState: TRANSFER_STATES.COMPLETED,
                 lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.COMPLETED),
             });
@@ -3094,6 +3191,7 @@ teleportBtn.addEventListener('click', async () => {
                 destinationWallet,
                 recipient,
                 wallets: activeBridgeContext?.wallets || [],
+                useForwarder,
                 lifecycleState: nextState,
                 lifecycleLabel: getTransferStateLabel(nextState),
                 errorMessage: productMessage,
@@ -3133,6 +3231,7 @@ teleportBtn.addEventListener('click', async () => {
             destinationWallet: activeBridgeContext?.destinationWallet || null,
             recipient: activeBridgeContext?.recipient || null,
             wallets: activeBridgeContext?.wallets || [],
+            useForwarder: activeBridgeContext?.useForwarder,
             lifecycleState: nextState,
             lifecycleLabel: getTransferStateLabel(nextState),
             errorMessage: productMessage,
@@ -3278,6 +3377,12 @@ function openTransactionDetails(item) {
     const explorerTarget = getActivityExplorerTarget(item);
     const explorerUrl = explorerTarget ? getLink(explorerTarget.chain, explorerTarget.hash) : null;
     const transactionLabel = explorerTarget ? shortHash(explorerTarget.hash) : (item.alreadyMinted ? 'Already minted' : 'Pending');
+    const detailRow = (label, value) => value ? `
+        <div class="manifest-row">
+            <span class="m-label">${escapeHtml(label)}</span>
+            <span class="m-value">${escapeHtml(value)}</span>
+        </div>
+    ` : '';
 
     txDetailsContent.innerHTML = `
         <div class="manifest-header">
@@ -3313,10 +3418,15 @@ function openTransactionDetails(item) {
                 <span class="m-label">Started</span>
                 <span class="m-value">${escapeHtml(formatActivityTime(item.timestamp))}</span>
             </div>
+            ${detailRow('Updated', item.updatedAt ? formatActivityTime(item.updatedAt) : null)}
             <div class="manifest-row">
                 <span class="m-label">Status</span>
                 <span class="m-value">${escapeHtml(lifecycleLabel)}</span>
             </div>
+            ${detailRow('Delivery', item.useForwarder ? 'Circle Forwarder' : 'Manual destination mint')}
+            ${detailRow('Source wallet', item.sourceWallet ? shortHash(item.sourceWallet) : null)}
+            ${detailRow('Destination wallet', item.destinationWallet ? shortHash(item.destinationWallet) : null)}
+            ${detailRow('Recipient', item.recipient && item.recipient !== item.destinationWallet ? shortHash(item.recipient) : null)}
             <div class="manifest-row">
                 <span class="m-label">Transaction</span>
                 <span class="m-value">${escapeHtml(transactionLabel)}</span>
@@ -3334,6 +3444,12 @@ function openTransactionDetails(item) {
                         ${escapeHtml(shortHash(item.burnTxHash))}
                         <button class="tx-link copy-burn-btn inline-copy" type="button" data-copy-burn="${escapeHtml(item.burnTxHash)}">Copy</button>
                     </span>
+                </div>
+            ` : ''}
+            ${item.mintTxHash || item.txHash ? `
+                <div class="manifest-row">
+                    <span class="m-label">Mint transaction</span>
+                    <span class="m-value">${escapeHtml(shortHash(item.mintTxHash || item.txHash))}</span>
                 </div>
             ` : ''}
         </div>

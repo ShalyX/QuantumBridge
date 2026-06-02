@@ -1,5 +1,5 @@
 const IRIS_API = process.env.IRIS_API || 'https://iris-api-sandbox.circle.com';
-const POLL_MS = Number(process.env.QUANTUM_WORKER_INTERVAL_MS || 30000);
+const POLL_MS = Number(process.env.QUANTUM_WORKER_INTERVAL_MS || 5000);
 
 async function fetchCctpAttestation(sourceDomain, burnTxHash) {
     const url = `${IRIS_API}/v2/messages/${sourceDomain}?transactionHash=${encodeURIComponent(burnTxHash)}`;

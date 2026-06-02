@@ -171,6 +171,65 @@ function filterTransfersByWallet(transfers, wallet) {
     ].filter(Boolean).some(value => String(value).toLowerCase() === needle));
 }
 
+function inferRouteFromTransferId(id = '') {
+    const parts = String(id).toLowerCase().split('-');
+    const chains = new Set(['arc', 'solana', 'ethereum']);
+    const fromIndex = parts.findIndex(part => chains.has(part));
+    if (fromIndex === -1 || !chains.has(parts[fromIndex + 1])) return {};
+    return { from: parts[fromIndex], to: parts[fromIndex + 1] };
+}
+
+function extractTransferPatchFromEvents(transfer, events = []) {
+    const inferredRoute = inferRouteFromTransferId(transfer.id);
+    const patch = {
+        from: transfer.from || inferredRoute.from || null,
+        to: transfer.to || inferredRoute.to || null,
+        wallets: Array.isArray(transfer.wallets) ? transfer.wallets : [],
+        metadata: {
+            ...(transfer.metadata || {}),
+            backfilledFromEvents: true,
+        },
+    };
+    let hasContext = Boolean(patch.from || patch.to || patch.wallets.length);
+
+    for (const event of events) {
+        const payload = safeParse(event.payload_json, {});
+        const context = payload.transferContext || {};
+        if (context && typeof context === 'object') {
+            patch.recoveryId = patch.recoveryId || context.recoveryId || context.id || transfer.recoveryId;
+            patch.from = patch.from || context.from || null;
+            patch.to = patch.to || context.to || null;
+            patch.amount = patch.amount || context.amount || null;
+            patch.recipient = patch.recipient || context.recipient || null;
+            patch.sourceWallet = patch.sourceWallet || context.sourceWallet || null;
+            patch.destinationWallet = patch.destinationWallet || context.destinationWallet || null;
+            patch.sourceDomain = patch.sourceDomain ?? context.sourceDomain ?? null;
+            patch.destinationDomain = patch.destinationDomain ?? context.destinationDomain ?? null;
+            patch.burnTxHash = patch.burnTxHash || context.burnTxHash || null;
+            patch.useForwarder = Boolean(patch.useForwarder || context.useForwarder);
+            if (Array.isArray(context.wallets)) {
+                patch.wallets = Array.from(new Set([...patch.wallets, ...context.wallets].filter(Boolean).map(String)));
+            }
+            hasContext = true;
+        }
+
+        const eventType = String(event.event_type || '').toLowerCase();
+        const values = payload.values || {};
+        if (values.txHash && eventType.includes('burn')) {
+            patch.burnTxHash = patch.burnTxHash || values.txHash;
+            patch.state = patch.state || 'burn_submitted';
+        }
+        if (values.txHash && eventType.includes('mint')) {
+            patch.mintTxHash = values.txHash;
+            patch.state = 'completed';
+            patch.errorMessage = null;
+        }
+    }
+
+    if (!hasContext && !patch.burnTxHash && !patch.mintTxHash) return null;
+    return patch;
+}
+
 class SqliteStore {
     constructor(db, dbPath) {
         this.db = db;
@@ -330,6 +389,27 @@ class SqliteStore {
         `).run(transferId, eventType, JSON.stringify(safePayload), nowIso());
     }
 
+    async backfillTransferContextsFromEvents() {
+        const rows = this.db.prepare(`
+            SELECT * FROM transfers
+            WHERE (
+                from_chain IS NULL
+                OR to_chain IS NULL
+                OR source_wallet IS NULL
+                OR json_array_length(COALESCE(wallets_json, '[]')) = 0
+            )
+              AND COALESCE(json_extract(metadata_json, '$.backfilledFromEvents'), 0) != 1
+            ORDER BY created_at DESC
+            LIMIT 100
+        `).all();
+        for (const row of rows) {
+            const transfer = rowToTransfer(row);
+            const events = this.db.prepare('SELECT * FROM transfer_events WHERE transfer_id = ? ORDER BY created_at ASC').all(transfer.id);
+            const patch = extractTransferPatchFromEvents(transfer, events);
+            if (patch) await this.patchTransfer(transfer.id, patch);
+        }
+    }
+
     async getSupportBundle(id) {
         const transfer = await this.getTransfer(id);
         if (!transfer) return null;
@@ -447,7 +527,7 @@ class PostgresStore {
     pgValues(record) {
         return TRANSFER_FIELDS.map(field => {
             if (field === 'wallets_json' || field === 'attestation_json' || field === 'metadata_json') {
-                return record[field] ? JSON.parse(record[field]) : null;
+                return record[field] || null;
             }
             return record[field];
         });
@@ -513,8 +593,35 @@ class PostgresStore {
         await this.pool.query(
             `INSERT INTO transfer_events (transfer_id, event_type, payload_json, created_at)
              VALUES ($1, $2, $3, $4)`,
-            [transferId, eventType, safePayload, nowIso()],
+            [transferId, eventType, JSON.stringify(safePayload), nowIso()],
         );
+    }
+
+    async backfillTransferContextsFromEvents() {
+        const result = await this.pool.query(`
+            SELECT * FROM transfers
+            WHERE (
+                from_chain IS NULL
+                OR to_chain IS NULL
+                OR source_wallet IS NULL
+                OR CASE
+                     WHEN jsonb_typeof(wallets_json) = 'array' THEN jsonb_array_length(wallets_json) = 0
+                     ELSE TRUE
+                   END
+            )
+              AND COALESCE(metadata_json->>'backfilledFromEvents', 'false') <> 'true'
+            ORDER BY created_at DESC
+            LIMIT 100
+        `);
+        for (const row of result.rows) {
+            const transfer = rowToTransfer(row);
+            const events = await this.pool.query(
+                'SELECT * FROM transfer_events WHERE transfer_id = $1 ORDER BY created_at ASC',
+                [transfer.id],
+            );
+            const patch = extractTransferPatchFromEvents(transfer, events.rows);
+            if (patch) await this.patchTransfer(transfer.id, patch);
+        }
     }
 
     async getSupportBundle(id) {
