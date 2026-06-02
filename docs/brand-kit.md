@@ -104,6 +104,8 @@ Current app sources:
 - Favicon: `public/favicon.svg` and `public/quantumbridge-icon.svg`
 - Shared icon sheet: `public/icons.svg`
 - Arc route icon: `src/assets/arc-logo.svg`
+- X/social profile PNG: `public/social/quantumbridge-profile.png`
+- X/social banner PNG: `public/social/quantumbridge-x-banner.png`
 
 Logo usage:
 
@@ -180,6 +182,17 @@ Capture these screens for launch material:
 6. Light mode home tab for contrast.
 
 Use dark mode as the default launch visual. Use light mode as a secondary product-polish image.
+
+## Social Media Assets
+
+Use these for the QuantumBridge X account:
+
+```text
+Profile image: public/social/quantumbridge-profile.png
+Header banner: public/social/quantumbridge-x-banner.png
+```
+
+The profile image is intentionally icon-only because X crops avatars into a circle. The banner keeps the main wordmark away from the left-bottom avatar overlay area.
 
 ## Brand Taglines
 

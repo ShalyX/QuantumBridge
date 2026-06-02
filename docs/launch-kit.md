@@ -14,6 +14,13 @@ Repository:
 https://github.com/ShalyX/QuantumBridge
 ```
 
+X account assets:
+
+```text
+Profile image: public/social/quantumbridge-profile.png
+Header banner: public/social/quantumbridge-x-banner.png
+```
+
 ## Main Release Post
 
 ```text
@@ -208,4 +215,3 @@ USDC bridging with memory, powered by Circle CCTP.
 - Test one EVM source route.
 - Confirm Activity shows the transfer in My Transfers and Global Feed.
 - Confirm Recovery can handle already claimed or pending burns with product messages.
-
