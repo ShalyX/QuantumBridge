@@ -3343,6 +3343,60 @@ function formatActivityTime(timestamp) {
     });
 }
 
+function formatRelativeTime(timestamp) {
+    if (!timestamp) return 'Unknown';
+    const date = new Date(timestamp);
+    const diffMs = Date.now() - date.getTime();
+    if (!Number.isFinite(diffMs)) return 'Unknown';
+    const absMs = Math.abs(diffMs);
+    const suffix = diffMs >= 0 ? 'ago' : 'from now';
+    if (absMs < 5000) return 'just now';
+    const units = [
+        ['day', 86400000],
+        ['hour', 3600000],
+        ['minute', 60000],
+        ['second', 1000],
+    ];
+    for (const [unit, ms] of units) {
+        const value = Math.floor(absMs / ms);
+        if (value >= 1) return `${value} ${unit}${value === 1 ? '' : 's'} ${suffix}`;
+    }
+    return 'just now';
+}
+
+function formatDuration(ms) {
+    if (!Number.isFinite(ms) || ms < 0) return 'Unknown';
+    if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`;
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.round((ms % 60000) / 1000);
+    return `${minutes}m ${seconds}s`;
+}
+
+function getActivityFillMeta(item) {
+    const status = item.status || 'pending';
+    if (status !== 'success') {
+        return {
+            label: status === 'error' ? 'Paused' : 'Processing',
+            sublabel: formatRelativeTime(item.updatedAt || item.timestamp),
+        };
+    }
+    const started = item.timestamp ? new Date(item.timestamp).getTime() : NaN;
+    const ended = item.updatedAt ? new Date(item.updatedAt).getTime() : NaN;
+    return {
+        label: Number.isFinite(started) && Number.isFinite(ended) ? formatDuration(ended - started) : 'Complete',
+        sublabel: formatRelativeTime(item.updatedAt || item.timestamp),
+    };
+}
+
+function getActivityCounterparty(item, role) {
+    const candidates = role === 'sender'
+        ? [item.sourceWallet, item.fromWallet, item.sender, ...(Array.isArray(item.wallets) ? item.wallets : [])]
+        : [item.recipient, item.destinationWallet, item.toWallet, ...(Array.isArray(item.wallets) ? item.wallets.slice().reverse() : [])];
+    const value = candidates.find(entry => typeof entry === 'string' && entry.trim());
+    return value ? shortHash(value) : 'Unknown';
+}
+
 function getActivityExplorerChain(item) {
     if (!item?.txHash) return item?.from || 'arc';
     if (item.status === 'success' || item.type === 'Recovery') return item.to || item.from || 'arc';
@@ -3645,28 +3699,67 @@ function renderActivity() {
         return;
     }
     list.classList.remove('empty-portal');
-    list.innerHTML = visibleActivities.map(item => {
+    const rows = visibleActivities.map(item => {
         const lifecycleState = item.lifecycleState || item.state || (item.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : null);
         const lifecycleLabel = item.lifecycleLabel || (lifecycleState ? getTransferStateLabel(lifecycleState) : (item.status || 'pending'));
-        const explorerTarget = getActivityExplorerTarget(item);
+        const status = item.status || 'pending';
+        const fromLabel = CHAIN_LABELS[item.from] || item.from || 'Unknown';
+        const toLabel = CHAIN_LABELS[item.to] || item.to || 'Unknown';
+        const fillHash = item.mintTxHash || item.txHash || null;
+        const fillMeta = getActivityFillMeta(item);
+        const fillChain = fillHash ? getActivityExplorerChain({ ...item, txHash: fillHash }) : null;
+        const depositChain = item.from || 'arc';
+        const amount = item.amount || 'unknown';
         return `
-            <div class="activity-item" data-activity-id="${escapeHtml(item.id)}" role="button" tabindex="0" aria-label="View ${escapeHtml(item.type || 'transaction')} details">
-                <div class="activity-badge ${escapeHtml(item.status || 'pending')}">${escapeHtml((item.type || 'T').slice(0, 1).toUpperCase())}</div>
-                <div class="activity-info">
-                    <h4>${escapeHtml((item.from || '').toUpperCase())} -> ${escapeHtml((item.to || '').toUpperCase())}</h4>
-                    <p>${escapeHtml(item.amount)} USDC • <span class="status-pill ${escapeHtml(item.status || 'pending')}">${escapeHtml(lifecycleLabel)}</span></p>
+            <div class="activity-item activity-ledger-row" data-activity-id="${escapeHtml(item.id)}" role="button" tabindex="0" aria-label="View ${escapeHtml(item.type || 'transaction')} details">
+                <div class="activity-cell from-cell" data-label="From">
+                    <span class="chain-name">${escapeHtml(fromLabel)}</span>
+                    <span class="activity-amount">${escapeHtml(amount)} USDC</span>
+                    <span class="wallet-line">Sender: ${escapeHtml(getActivityCounterparty(item, 'sender'))}</span>
                 </div>
-                <div class="activity-action">
+                <div class="activity-cell to-cell" data-label="To">
+                    <span class="chain-name">${escapeHtml(toLabel)}</span>
+                    <span class="wallet-line">Recipient: ${escapeHtml(getActivityCounterparty(item, 'recipient'))}</span>
+                </div>
+                <div class="activity-cell tx-cell" data-label="Transactions">
+                    <span class="tx-row">
+                        <span>Deposit:</span>
+                        ${item.burnTxHash
+                            ? `<a class="tx-link" href="${getLink(depositChain, item.burnTxHash)}" target="_blank" rel="noopener">${escapeHtml(shortHash(item.burnTxHash))}</a>`
+                            : '<span class="pending-note-inline">Pending</span>'}
+                    </span>
+                    <span class="tx-row">
+                        <span>Fill:</span>
+                        ${fillHash
+                            ? `<a class="tx-link" href="${getLink(fillChain, fillHash)}" target="_blank" rel="noopener">${escapeHtml(shortHash(fillHash))}</a>`
+                            : `<span class="pending-note-inline">${escapeHtml(item.alreadyMinted ? 'Completed' : 'Processing')}</span>`}
+                    </span>
                     ${item.burnTxHash
                         ? `<button class="tx-link copy-burn-btn" type="button" data-copy-burn="${escapeHtml(item.burnTxHash)}">Copy burn tx</button>`
                         : ''}
-                    ${explorerTarget
-                        ? `<a class="tx-link" href="${getLink(explorerTarget.chain, explorerTarget.hash)}" target="_blank" rel="noopener">Open in explorer</a>`
-                        : `<span class="tx-link">${item.alreadyMinted ? 'Completed' : 'Details'}</span>`}
+                </div>
+                <div class="activity-cell status-cell" data-label="Status">
+                    <span class="status-pill ${escapeHtml(status)}">${escapeHtml(lifecycleLabel)}</span>
+                </div>
+                <div class="activity-cell fill-cell" data-label="Fill Time">
+                    <strong>${escapeHtml(fillMeta.label)}</strong>
+                    <span>${escapeHtml(fillMeta.sublabel)}</span>
                 </div>
             </div>
         `;
     }).join('');
+    list.innerHTML = `
+        <div class="activity-ledger-head" aria-hidden="true">
+            <span>From</span>
+            <span>To</span>
+            <span>Transactions</span>
+            <span>Status</span>
+            <span>Fill Time</span>
+        </div>
+        <div class="activity-ledger-body">
+            ${rows}
+        </div>
+    `;
 }
 
 document.getElementById('activity-list')?.addEventListener('click', async (event) => {

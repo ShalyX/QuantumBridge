@@ -1864,17 +1864,100 @@ footer {
 }
 
 .activity-item {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.035);
     border: 1px solid var(--glass-border);
-    border-radius: 12px;
-    padding: 1rem;
-    margin-bottom: 0.75rem;
+    border-radius: 14px;
+    padding: 0.95rem 1rem;
+    margin-bottom: 0.62rem;
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: 1.05fr 1.05fr 1.32fr 0.92fr 0.86fr;
     align-items: center;
-    gap: 1rem;
+    gap: 0.95rem;
     animation: slideIn 0.3s ease-out;
     cursor: pointer;
+}
+
+.activity-ledger-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: 1.05fr 1.05fr 1.32fr 0.92fr 0.86fr;
+    gap: 0.95rem;
+    padding: 0.7rem 1rem;
+    margin: -0.85rem -1rem 0.72rem;
+    background: rgba(7, 9, 23, 0.94);
+    border-bottom: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    backdrop-filter: blur(14px);
+}
+
+.activity-ledger-body {
+    min-width: 0;
+}
+
+.activity-cell {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+}
+
+.activity-cell::before {
+    display: none;
+    content: attr(data-label);
+}
+
+.chain-name {
+    color: var(--text-primary);
+    font-weight: 900;
+    line-height: 1.2;
+}
+
+.wallet-line,
+.fill-cell span,
+.pending-note-inline {
+    color: var(--text-secondary);
+    font-size: 0.74rem;
+    line-height: 1.35;
+}
+
+.wallet-line {
+    font-family: var(--font-mono);
+}
+
+.tx-cell {
+    gap: 0.34rem;
+}
+
+.tx-row {
+    display: flex;
+    align-items: center;
+    gap: 0.38rem;
+    min-width: 0;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+}
+
+.tx-row > span:first-child {
+    color: var(--text-secondary);
+    font-family: var(--font-body);
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+
+.status-cell {
+    align-items: flex-start;
+}
+
+.fill-cell strong {
+    color: var(--text-primary);
+    font-size: 0.86rem;
 }
 
 /* Transaction Detail Card - Quantum Manifest */
@@ -2147,6 +2230,11 @@ footer {
 .light-theme .activity-item {
     background: rgba(255, 255, 255, 0.76);
     border-color: rgba(30, 41, 59, 0.06);
+}
+
+.light-theme .activity-ledger-head {
+    background: rgba(248, 250, 252, 0.94);
+    border-color: rgba(30, 41, 59, 0.08);
 }
 
 @keyframes slideIn {
@@ -2601,4 +2689,51 @@ footer {
     font-weight: 800;
     color: var(--text-primary);
     font-family: var(--font-mono);
+}
+
+@media (max-width: 900px) {
+    .activity-ledger-head {
+        display: none;
+    }
+
+    .activity-item {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+        gap: 0.72rem;
+    }
+
+    .activity-cell {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr);
+        align-items: start;
+        gap: 0.2rem 0.7rem;
+    }
+
+    .activity-cell::before {
+        display: block;
+        grid-row: 1 / span 3;
+        color: var(--text-secondary);
+        font-size: 0.66rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .status-cell {
+        align-items: start;
+    }
+
+    .tx-cell {
+        gap: 0.28rem 0.7rem;
+    }
+}
+
+@media (max-width: 520px) {
+    .activity-cell {
+        grid-template-columns: 1fr;
+    }
+
+    .activity-cell::before {
+        grid-row: auto;
+    }
 }
