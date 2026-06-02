@@ -96,7 +96,10 @@ Use Inter for product copy and interface labels. Use JetBrains Mono for hashes, 
 
 Current app sources:
 
-- Header mark and lockup: inline SVG in `index.html`
+- Standalone mark: `public/quantumbridge-mark.svg`
+- Standalone horizontal lockup for dark surfaces: `public/quantumbridge-logo.svg`
+- Standalone horizontal lockup for light surfaces: `public/quantumbridge-logo-light.svg`
+- Header mark: `public/quantumbridge-mark.svg`
 - Favicon: `public/favicon.svg`
 - Shared icon sheet: `public/icons.svg`
 - Arc route icon: `src/assets/arc-logo.svg`
@@ -208,4 +211,3 @@ Short:
 ```text
 USDC bridging with memory.
 ```
-
