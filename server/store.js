@@ -533,6 +533,13 @@ class PostgresStore {
         });
     }
 
+    pgPlaceholder(field, index) {
+        const placeholder = `$${index}`;
+        return field === 'wallets_json' || field === 'attestation_json' || field === 'metadata_json'
+            ? `${placeholder}::jsonb`
+            : placeholder;
+    }
+
     async getTransfer(id) {
         return rowToTransfer(await this.findTransferRow(id));
     }
@@ -547,14 +554,14 @@ class PostgresStore {
 
         if (existing) {
             const assignments = TRANSFER_FIELDS.filter(field => field !== 'id')
-                .map((field, index) => `${field} = $${index + 1}`)
+                .map((field, index) => `${field} = ${this.pgPlaceholder(field, index + 1)}`)
                 .join(', ');
             const values = TRANSFER_FIELDS.filter(field => field !== 'id').map(field => this.pgValues(next)[TRANSFER_FIELDS.indexOf(field)]);
             values.push(next.id);
             await this.pool.query(`UPDATE transfers SET ${assignments} WHERE id = $${values.length}`, values);
         } else {
             const columns = TRANSFER_FIELDS.join(', ');
-            const placeholders = TRANSFER_FIELDS.map((_, index) => `$${index + 1}`).join(', ');
+            const placeholders = TRANSFER_FIELDS.map((field, index) => this.pgPlaceholder(field, index + 1)).join(', ');
             await this.pool.query(
                 `INSERT INTO transfers (${columns}) VALUES (${placeholders})`,
                 this.pgValues(next),
@@ -592,7 +599,7 @@ class PostgresStore {
         const safePayload = safeJsonValue(payload);
         await this.pool.query(
             `INSERT INTO transfer_events (transfer_id, event_type, payload_json, created_at)
-             VALUES ($1, $2, $3, $4)`,
+             VALUES ($1, $2, $3::jsonb, $4)`,
             [transferId, eventType, JSON.stringify(safePayload), nowIso()],
         );
     }
