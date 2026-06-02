@@ -97,10 +97,11 @@ Use Inter for product copy and interface labels. Use JetBrains Mono for hashes, 
 Current app sources:
 
 - Standalone mark: `public/quantumbridge-mark.svg`
+- Standalone app icon/badge: `public/quantumbridge-icon.svg`
 - Standalone horizontal lockup for dark surfaces: `public/quantumbridge-logo.svg`
 - Standalone horizontal lockup for light surfaces: `public/quantumbridge-logo-light.svg`
 - Header mark: `public/quantumbridge-mark.svg`
-- Favicon: `public/favicon.svg`
+- Favicon: `public/favicon.svg` and `public/quantumbridge-icon.svg`
 - Shared icon sheet: `public/icons.svg`
 - Arc route icon: `src/assets/arc-logo.svg`
 

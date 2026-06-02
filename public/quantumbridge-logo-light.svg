@@ -1,11 +1,12 @@
-<svg width="640" height="96" viewBox="0 0 640 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+<svg width="720" height="112" viewBox="0 0 720 112" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">QuantumBridge logo for light backgrounds</title>
   <desc id="desc">QuantumBridge wordmark with quantum orbit bridge mark for light surfaces.</desc>
-  <g transform="translate(12 12)">
-    <path d="M36 72C55.8823 72 72 55.8823 72 36C72 16.1177 55.8823 0 36 0C16.1177 0 0 16.1177 0 36C0 55.8823 16.1177 72 36 72Z" stroke="#0891B2" stroke-width="7" stroke-dasharray="14 14" stroke-linecap="round"/>
-    <path d="M36 58C48.1503 58 58 48.1503 58 36C58 23.8497 48.1503 14 36 14C23.8497 14 14 23.8497 14 36C14 48.1503 23.8497 58 36 58Z" stroke="#0891B2" stroke-width="7" stroke-dasharray="7 7" stroke-linecap="round"/>
-    <circle cx="36" cy="36" r="8" fill="#0891B2"/>
+  <g transform="translate(16 16)">
+    <circle cx="40" cy="40" r="32" stroke="#0891B2" stroke-width="8" stroke-dasharray="14 14" stroke-linecap="round"/>
+    <circle cx="40" cy="40" r="20" stroke="#0891B2" stroke-width="8" stroke-dasharray="8 8" stroke-linecap="round"/>
+    <circle cx="40" cy="40" r="9" fill="#0891B2"/>
   </g>
-  <text x="106" y="66" fill="#1E1B4B" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="800" letter-spacing="0">Quantum</text>
-  <text x="325" y="66" fill="#0891B2" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="800" letter-spacing="0">Bridge</text>
+  <text x="116" y="75" font-family="Inter, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="0">
+    <tspan fill="#1E1B4B">Quantum</tspan><tspan fill="#0891B2">Bridge</tspan>
+  </text>
 </svg>
