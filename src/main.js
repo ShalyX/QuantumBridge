@@ -139,7 +139,7 @@ let globalActivityHistory = [];
 let walletViewGeneration = 0;
 
 kit.on('*', async (event) => {
-    console.log("[QuantumBridge Event]", event);
+    console.log("[QuantumBridge Event]", summarizeBridgeEventForConsole(event));
     const { method, values: step } = event;
     const { state, txHash } = step || {};
     const from = originChainSelect?.value || 'arc';
@@ -523,6 +523,7 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     forwarderFeeTooHigh: 'This transfer is below the current Circle Forwarder fee for this route. Increase the amount and try again.',
     solanaAtaCreation: 'Solana token account setup failed. Use Backpack or Solflare, or paste a Solana destination that already has a devnet USDC token account.',
     solanaMintPaused: 'Solana mint could not complete. Your burn is saved; open Recovery and resume this transfer with Backpack or Solflare.',
+    solanaBlockhashExpired: 'Solana mint transaction expired before submission. Your burn is saved; open Recovery and resume this transfer to submit a fresh mint.',
     simulationFailed: 'The destination chain rejected this mint. Try Resume transfer again, or use a supported wallet for this route.',
     appAssetUnavailable: 'App update asset failed to load. Refresh once and retry; your transfer will remain recoverable if the burn already happened.',
     genericRecoverable: 'Transfer paused. Resume it from the recovery panel when wallets are connected.',
@@ -573,6 +574,37 @@ function safeTelemetryValue(value, seen = new WeakSet(), depth = 0) {
     return Object.fromEntries(
         Object.entries(value).slice(0, 80).map(([key, item]) => [key, safeTelemetryValue(item, seen, depth + 1)]),
     );
+}
+
+function getErrorCodeSummary(error) {
+    return error?.code ||
+        error?.context?.__code ||
+        error?.cause?.code ||
+        error?.cause?.context?.__code ||
+        error?.cause?.cause?.context?.__code ||
+        null;
+}
+
+function summarizeBridgeEventForConsole(event) {
+    const values = event?.values || {};
+    const error = values.error || values.errorMessage || null;
+    return {
+        protocol: event?.protocol || null,
+        version: event?.version || null,
+        traceId: event?.traceId || null,
+        method: event?.method || null,
+        values: {
+            name: values.name || null,
+            state: values.state || null,
+            txHash: values.txHash ? shortHash(values.txHash) : null,
+            forwarded: Boolean(values.forwarded),
+            error: error ? {
+                productMessage: getProductErrorMessage(error),
+                name: error?.name || null,
+                code: getErrorCodeSummary(error),
+            } : null,
+        },
+    };
 }
 
 function nowIso() {
@@ -1242,11 +1274,17 @@ function isSolanaPreflightOrDecoderError(text) {
     );
 }
 
+function isSolanaBlockhashExpiredError(error) {
+    const lower = getErrorText(error).toLowerCase();
+    return lower.includes('blockhash not found') || lower.includes('7050008');
+}
+
 function getProductErrorMessage(error) {
     const text = getErrorText(error) || String(error?.message || error || '');
     const lower = text.toLowerCase();
 
     if (isNonceAlreadyUsedError(error)) return PRODUCT_ERROR_MESSAGES.alreadyClaimed;
+    if (isSolanaBlockhashExpiredError(error)) return PRODUCT_ERROR_MESSAGES.solanaBlockhashExpired;
     if (isSolanaPreflightOrDecoderError(text)) return PRODUCT_ERROR_MESSAGES.solanaMintPaused;
     if (
         lower.includes('maxfeemustbelessthanamount') ||
@@ -3152,14 +3190,20 @@ teleportBtn.addEventListener('click', async () => {
         } else {
             const failedStep = result.steps?.find(s => s.state === 'error');
             const stepError = failedStep?.error;
+            const productMessage = getProductErrorMessage(stepError || failedStep?.errorMessage || PRODUCT_ERROR_MESSAGES.genericRecoverable);
             if (stepError && stepError.cause && stepError.cause.trace) {
                 const trace = stepError.cause.trace;
-                console.dir(trace);
+                console.warn('[QuantumBridge] Bridge step failed', {
+                    route: `${from}->${to}`,
+                    stage: failedStep?.name || 'bridge.result',
+                    productMessage,
+                    chain: trace.chain || null,
+                    code: getErrorCodeSummary(trace.rawError || stepError),
+                });
                 const logs = trace.logs || trace.errorDetails?.logs || [];
                 const logsStr = Array.isArray(logs) ? logs.join('\n') : String(logs);
                 if (logsStr.includes('remote_token_messenger')) console.error("DIAGNOSIS: Destination domain unsupported on Solana Devnet.");
             }
-            const productMessage = getProductErrorMessage(stepError || failedStep?.errorMessage || PRODUCT_ERROR_MESSAGES.genericRecoverable);
             finalEtaLabel = 'Paused';
             const nextState = activeBridgeContext?.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
             patchTransferRecord(activeBridgeContext?.id, {
