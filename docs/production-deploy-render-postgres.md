@@ -1,15 +1,15 @@
-# Production Deploy: Render + Postgres
+# Production Deploy: Render + Neon Postgres
 
 QuantumBridge is configured for a production topology with:
 
 - one Render web service for the frontend, API, and Circle Iris polling
-- one managed Postgres database for durable transfer history
+- one external Neon Postgres database for durable transfer history
 
 The app uses Postgres whenever `DATABASE_URL` is set. Without `DATABASE_URL`, it falls back to local SQLite for development.
 
 ## Files
 
-- `render.yaml` provisions the Render web service and Postgres database.
+- `render.yaml` provisions the Render web service and expects `DATABASE_URL` as a secret environment variable.
 - `server/store.js` selects Postgres or SQLite and runs schema bootstrap automatically.
 - `server/index.js` serves `/api/*` and the built Vite frontend from `dist/`.
 - `server/index.js` also starts the Iris polling worker unless `QUANTUM_WORKER_DISABLED=1`.
@@ -37,33 +37,24 @@ npm run api
 
 1. Push this repo to GitHub, GitLab, or Bitbucket.
 2. Confirm `render.yaml` is committed.
-3. Open:
+3. Create a Neon Postgres project and copy the pooled production connection string.
+4. Open:
 
 ```text
 https://dashboard.render.com/blueprint/new
 ```
 
-4. Select the repo and apply the Blueprint.
-5. Render will provision:
-   - `quantum-bridge`
-   - `quantum-bridge-postgres`
+5. Select the repo and apply the Blueprint.
+6. Render will provision `quantum-bridge`.
+7. In the Render service environment, set:
 
-## If You Prefer Neon Postgres
-
-Create a Neon database, then replace the Render database binding with a `DATABASE_URL` secret on the Render web service.
-
-Keep the same service:
-
-- `quantum-bridge`
-
-Set:
-
-```text
+```
 DATABASE_URL=<your Neon pooled connection string>
+PGSSLMODE=require
 IRIS_API=https://iris-api-sandbox.circle.com
 ```
 
-Neon requires SSL. Remove the `PGSSLMODE=disable` env var from the Render service when using Neon so the app enables SSL automatically.
+Do not commit `DATABASE_URL` to the repo. Neon requires SSL, so keep `PGSSLMODE=require`.
 
 ## Health Check
 
