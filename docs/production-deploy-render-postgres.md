@@ -56,6 +56,25 @@ IRIS_API=https://iris-api-sandbox.circle.com
 
 Do not commit `DATABASE_URL` to the repo. Neon requires SSL, so keep `PGSSLMODE=require`.
 
+## Migrate Existing Render Postgres History To Neon
+
+If the app previously used Render Postgres, migrate before the Render database expires.
+
+1. In Render, open the old `quantum-bridge-postgres` database.
+2. Copy its external connection string.
+3. In Neon, copy the production pooled connection string.
+4. Run from this repo in PowerShell:
+
+```powershell
+$env:SOURCE_DATABASE_URL="<old Render Postgres external URL>"
+$env:TARGET_DATABASE_URL="<new Neon pooled connection string>"
+npm run migrate:postgres
+Remove-Item Env:SOURCE_DATABASE_URL
+Remove-Item Env:TARGET_DATABASE_URL
+```
+
+The migration merges by transfer id or burn transaction hash. It keeps newer Neon rows when a record already exists, and it skips duplicate transfer events if you run the command more than once.
+
 ## Health Check
 
 After deploy:

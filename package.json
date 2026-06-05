@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "verify:prod": "npm run build",
     "verify:clean": "npm ci && npm run build",
+    "migrate:postgres": "node scripts/migrate-postgres-history.js",
     "postinstall": "patch-package"
   },
   "dependencies": {
