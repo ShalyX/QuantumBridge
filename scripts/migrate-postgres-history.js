@@ -58,9 +58,35 @@ function sslConfig(connectionString, mode = '') {
     return { rejectUnauthorized: false };
 }
 
+function createPool(connectionString, mode = '') {
+    return new Pool({
+        connectionString,
+        ssl: sslConfig(connectionString, mode),
+        connectionTimeoutMillis: 15000,
+        idleTimeoutMillis: 10000,
+        max: 3,
+    });
+}
+
+function stableStringify(value) {
+    if (value === undefined) return 'null';
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+}
+
 function jsonValue(value) {
     if (value === undefined || value === null) return null;
     return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+function eventFingerprint(event, transferId = event.transfer_id) {
+    return [
+        transferId,
+        event.event_type,
+        new Date(event.created_at).toISOString(),
+        stableStringify(event.payload_json),
+    ].join('|');
 }
 
 function fieldValue(row, field, id = row.id) {
@@ -156,7 +182,9 @@ async function updateTransfer(client, targetId, sourceRow) {
 }
 
 async function migrateTransfers(source, target) {
+    console.log('Reading source transfers...');
     const result = await source.query('SELECT * FROM transfers ORDER BY created_at ASC, id ASC');
+    console.log(`Found ${result.rowCount} source transfers.`);
     const idMap = new Map();
     const stats = { inserted: 0, updated: 0, skipped: 0 };
 
@@ -184,42 +212,58 @@ async function migrateTransfers(source, target) {
 }
 
 async function migrateEvents(source, target, idMap) {
+    console.log('Reading source transfer events...');
     const result = await source.query('SELECT * FROM transfer_events ORDER BY id ASC');
+    console.log(`Found ${result.rowCount} source transfer events.`);
     const stats = { inserted: 0, skipped: 0, missingTransfer: 0 };
+    const transferIds = [...new Set(result.rows.map(event => idMap.get(event.transfer_id) || event.transfer_id))];
+    const existingTransfers = transferIds.length
+        ? await target.query('SELECT id FROM transfers WHERE id = ANY($1::text[])', [transferIds])
+        : { rows: [] };
+    const existingTransferIds = new Set(existingTransfers.rows.map(row => row.id));
+    const existingEvents = transferIds.length
+        ? await target.query(
+            `SELECT transfer_id, event_type, payload_json, created_at
+             FROM transfer_events
+             WHERE transfer_id = ANY($1::text[])`,
+            [transferIds],
+        )
+        : { rows: [] };
+    const existingFingerprints = new Set(existingEvents.rows.map(event => eventFingerprint(event)));
+    const pending = [];
 
     for (const event of result.rows) {
         const transferId = idMap.get(event.transfer_id) || event.transfer_id;
-        const transferExists = await target.query('SELECT 1 FROM transfers WHERE id = $1 LIMIT 1', [transferId]);
-        if (!transferExists.rowCount) {
+        if (!existingTransferIds.has(transferId)) {
             stats.missingTransfer += 1;
             continue;
         }
 
-        const payload = jsonValue(event.payload_json);
-        const duplicate = await target.query(
-            `SELECT 1 FROM transfer_events
-             WHERE transfer_id = $1
-               AND event_type = $2
-               AND created_at = $3
-               AND (
-                 (payload_json IS NULL AND $4::jsonb IS NULL)
-                 OR payload_json = $4::jsonb
-               )
-             LIMIT 1`,
-            [transferId, event.event_type, event.created_at, payload],
-        );
-
-        if (duplicate.rowCount) {
+        const fingerprint = eventFingerprint(event, transferId);
+        if (existingFingerprints.has(fingerprint)) {
             stats.skipped += 1;
             continue;
         }
 
+        existingFingerprints.add(fingerprint);
+        pending.push([transferId, event.event_type, jsonValue(event.payload_json), event.created_at]);
+        stats.inserted += 1;
+    }
+
+    for (let index = 0; index < pending.length; index += 200) {
+        const batch = pending.slice(index, index + 200);
+        const values = [];
+        const placeholders = batch.map((event, eventIndex) => {
+            const offset = eventIndex * 4;
+            values.push(...event);
+            return `($${offset + 1}, $${offset + 2}, $${offset + 3}::jsonb, $${offset + 4})`;
+        });
         await target.query(
             `INSERT INTO transfer_events (transfer_id, event_type, payload_json, created_at)
-             VALUES ($1, $2, $3::jsonb, $4)`,
-            [transferId, event.event_type, payload, event.created_at],
+             VALUES ${placeholders.join(', ')}`,
+            values,
         );
-        stats.inserted += 1;
+        console.log(`Inserted event batch ${Math.min(index + batch.length, pending.length)} / ${pending.length}.`);
     }
 
     return { stats, total: result.rowCount };
@@ -228,20 +272,23 @@ async function migrateEvents(source, target, idMap) {
 async function main() {
     assertEnv();
 
-    const source = new Pool({
-        connectionString: sourceUrl,
-        ssl: sslConfig(sourceUrl, process.env.SOURCE_PGSSLMODE || ''),
-    });
-    const target = new Pool({
-        connectionString: targetUrl,
-        ssl: sslConfig(targetUrl, process.env.TARGET_PGSSLMODE || process.env.PGSSLMODE || 'require'),
-    });
+    console.log('Connecting to source Postgres...');
+    const source = createPool(sourceUrl, process.env.SOURCE_PGSSLMODE || '');
+    source.on('error', error => console.warn(`Source Postgres connection warning: ${error.message}`));
+    await source.query('SELECT 1');
+    console.log('Source connected.');
 
-    const client = await target.connect();
+    console.log('Connecting to target Postgres...');
+    const target = createPool(targetUrl, process.env.TARGET_PGSSLMODE || process.env.PGSSLMODE || 'require');
+    target.on('error', error => console.warn(`Target Postgres connection warning: ${error.message}`));
+    await target.query('SELECT 1');
+    console.log('Target connected.');
+
     try {
-        await ensureSchema(client);
-        const transferResult = await migrateTransfers(source, client);
-        const eventResult = await migrateEvents(source, client, transferResult.idMap);
+        console.log('Ensuring target schema...');
+        await ensureSchema(target);
+        const transferResult = await migrateTransfers(source, target);
+        const eventResult = await migrateEvents(source, target, transferResult.idMap);
 
         console.log('QuantumBridge history migration complete.');
         console.log(`Transfers read: ${transferResult.total}`);
@@ -253,7 +300,6 @@ async function main() {
         console.log(`Events skipped: ${eventResult.stats.skipped}`);
         console.log(`Events skipped without transfer: ${eventResult.stats.missingTransfer}`);
     } finally {
-        client.release();
         await source.end();
         await target.end();
     }
