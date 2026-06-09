@@ -511,8 +511,14 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     solanaRecoveryWallet: 'Connect Solflare or Backpack to complete this route.',
     phantomSourceUnsupported: 'Phantom is limited for this CCTP route. Connect Backpack or Solflare to complete it.',
     walletConnection: 'Wallet connection failed. Refresh and reconnect this wallet from the modal.',
+    walletUnauthorized: 'Wallet authorization expired. Reconnect your EVM wallet, switch to the requested account and network, then approve the transaction.',
     walletPluginClosed: 'Wallet connection closed. Reopen or unlock the wallet, then try again.',
     walletRejected: 'Wallet approval was cancelled.',
+    nativeGasInsufficient: 'Not enough native gas for this route. Add testnet gas to the source wallet, then retry.',
+    sepoliaGasInsufficient: 'Not enough Sepolia ETH for gas. Add Sepolia testnet ETH to this wallet, then retry.',
+    arcGasInsufficient: 'Not enough Arc USDC for gas. Add Arc Testnet USDC to this wallet, then retry.',
+    tokenBalanceInsufficient: 'Not enough USDC on the source chain. Lower the amount or fund this wallet, then retry.',
+    nonceTooLow: 'Wallet nonce is out of sync. The previous request may already be submitted; wait a few seconds, check Activity, then retry if no burn appears.',
     circleIndexing: 'Circle has not indexed this burn yet. Try again in a moment.',
     attestationExpired: 'Circle attestation expired. Requesting a fresh attestation before minting.',
     solanaHashMismatch: 'This looks like an EVM transaction hash. For Solana source recovery, paste the Solana burn signature or switch the source chain.',
@@ -1263,6 +1269,14 @@ function isNonceAlreadyUsedError(error) {
     return getErrorText(error).toLowerCase().includes('nonce already used');
 }
 
+function isNonceTooLowError(error) {
+    const lower = getErrorText(error).toLowerCase();
+    return lower.includes('nonce too low') ||
+        lower.includes('nonce provided for the transaction is lower') ||
+        lower.includes('tx nonce') ||
+        lower.includes('noncetoolowerror');
+}
+
 function isSolanaPreflightOrDecoderError(text) {
     const lower = String(text || '').toLowerCase();
     return lower.includes('unknown blockchain error on solana') && (
@@ -1284,6 +1298,7 @@ function getProductErrorMessage(error) {
     const lower = text.toLowerCase();
 
     if (isNonceAlreadyUsedError(error)) return PRODUCT_ERROR_MESSAGES.alreadyClaimed;
+    if (isNonceTooLowError(error)) return PRODUCT_ERROR_MESSAGES.nonceTooLow;
     if (isSolanaBlockhashExpiredError(error)) return PRODUCT_ERROR_MESSAGES.solanaBlockhashExpired;
     if (isSolanaPreflightOrDecoderError(text)) return PRODUCT_ERROR_MESSAGES.solanaMintPaused;
     if (
@@ -1297,6 +1312,32 @@ function getProductErrorMessage(error) {
     }
     if (lower.includes('attestation is still pending') || lower.includes('not ready yet') || lower.includes('has not indexed')) {
         return lower.includes('indexed') ? PRODUCT_ERROR_MESSAGES.circleIndexing : PRODUCT_ERROR_MESSAGES.attestationPending;
+    }
+    if (
+        lower.includes('unauthorizedprovidererror') ||
+        lower.includes('4100') ||
+        lower.includes('requested account and/or method has not been authorized') ||
+        lower.includes('requested method and/or account has not been authorized')
+    ) {
+        return PRODUCT_ERROR_MESSAGES.walletUnauthorized;
+    }
+    if (
+        lower.includes('balance_insufficient_token') ||
+        lower.includes('insufficient usdc balance') ||
+        lower.includes('not enough usdc') ||
+        lower.includes('insufficient token balance')
+    ) {
+        return PRODUCT_ERROR_MESSAGES.tokenBalanceInsufficient;
+    }
+    if (
+        lower.includes('insufficient funds for gas') ||
+        lower.includes('exceeds the balance of the account') ||
+        lower.includes('insufficientfundserror') ||
+        lower.includes('gas * price + value')
+    ) {
+        if (lower.includes('sepolia')) return PRODUCT_ERROR_MESSAGES.sepoliaGasInsufficient;
+        if (lower.includes('arc testnet')) return PRODUCT_ERROR_MESSAGES.arcGasInsufficient;
+        return PRODUCT_ERROR_MESSAGES.nativeGasInsufficient;
     }
     if (lower.includes('messageexpired') || (lower.includes('message') && lower.includes('expired')) || lower.includes('re-attest')) {
         return PRODUCT_ERROR_MESSAGES.attestationExpired;
