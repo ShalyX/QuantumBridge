@@ -373,7 +373,10 @@ class SqliteStore {
         const rows = this.db.prepare(`
             SELECT * FROM transfers
             WHERE burn_tx_hash IS NOT NULL
-              AND (state IN ('burn_submitted', 'attestation_pending', 'recoverable') OR already_minted = 1)
+              AND (
+                state IN ('burn_submitted', 'attestation_pending', 'recoverable')
+                OR (already_minted = 1 AND state <> 'already_claimed')
+              )
             ORDER BY updated_at ASC
             LIMIT 100
         `).all();
@@ -587,7 +590,10 @@ class PostgresStore {
         const result = await this.pool.query(`
             SELECT * FROM transfers
             WHERE burn_tx_hash IS NOT NULL
-              AND (state IN ('burn_submitted', 'attestation_pending', 'recoverable') OR already_minted = TRUE)
+              AND (
+                state IN ('burn_submitted', 'attestation_pending', 'recoverable')
+                OR (already_minted = TRUE AND state <> 'already_claimed')
+              )
             ORDER BY updated_at ASC
             LIMIT 100
         `);

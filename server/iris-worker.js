@@ -40,6 +40,8 @@ async function reconcileTransfer(store, transfer) {
             metadata: {
                 ...(transfer.metadata || {}),
                 workerStatus: 'already_claimed',
+                completedAt: transfer.metadata?.completedAt || transfer.metadata?.claimedAt || transfer.updatedAt || checkedAt,
+                claimedAt: transfer.metadata?.claimedAt || transfer.updatedAt || checkedAt,
             },
         });
         return;
@@ -74,6 +76,8 @@ async function reconcileTransfer(store, transfer) {
                     ...(transfer.metadata || {}),
                     workerStatus: 'forwarder_confirmed',
                     forwardState: message.forwardState || null,
+                    completedAt: transfer.metadata?.completedAt || checkedAt,
+                    forwarderConfirmedAt: transfer.metadata?.forwarderConfirmedAt || checkedAt,
                 },
             });
             return;

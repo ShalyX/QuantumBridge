@@ -924,6 +924,7 @@ function transferToActivity(transfer, { type = 'Teleport' } = {}) {
         useForwarder: Boolean(transfer.useForwarder),
         lastCheckedAt: transfer.lastCheckedAt || null,
         metadata: transfer.metadata || {},
+        completedAt: transfer.metadata?.completedAt || transfer.metadata?.finishedAt || transfer.metadata?.claimedAt || null,
     };
 }
 
@@ -955,6 +956,8 @@ function mergeBackendTransfersIntoLocal(transfers) {
                 lifecycleState: transfer.state,
                 lifecycleLabel: getTransferStateLabel(transfer.state),
                 errorMessage: transfer.errorMessage || null,
+                metadata: transfer.metadata || {},
+                completedAt: transfer.metadata?.completedAt || transfer.metadata?.finishedAt || transfer.metadata?.claimedAt || null,
                 timestamp: transfer.createdAt || transfer.updatedAt || nowIso(),
                 updatedAt: transfer.updatedAt || transfer.createdAt || nowIso(),
             });
@@ -3414,6 +3417,38 @@ function formatDuration(ms) {
     return `${minutes}m ${seconds}s`;
 }
 
+function isTerminalActivityState(state) {
+    return state === TRANSFER_STATES.COMPLETED || state === TRANSFER_STATES.ALREADY_CLAIMED;
+}
+
+function getActivityCompletionTime(item = {}) {
+    const metadata = item.metadata || {};
+    const candidates = [
+        item.completedAt,
+        item.finishedAt,
+        item.claimedAt,
+        metadata.completedAt,
+        metadata.finishedAt,
+        metadata.claimedAt,
+        metadata.forwarderConfirmedAt,
+    ];
+    if (item.mintTxHash || item.txHash) candidates.push(item.updatedAt);
+    const value = candidates.find(candidate => {
+        const time = new Date(candidate || '').getTime();
+        return Number.isFinite(time);
+    });
+    return value || null;
+}
+
+function getActivitySortTime(item = {}) {
+    const lifecycleState = item.lifecycleState || item.state || (item.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : null);
+    const sortTimestamp = isTerminalActivityState(lifecycleState)
+        ? (getActivityCompletionTime(item) || item.timestamp || item.createdAt)
+        : (item.updatedAt || item.timestamp || item.createdAt);
+    const time = new Date(sortTimestamp || '').getTime();
+    return Number.isFinite(time) ? time : 0;
+}
+
 function getActivityFillMeta(item) {
     const status = item.status || 'pending';
     if (status !== 'success') {
@@ -3422,11 +3457,19 @@ function getActivityFillMeta(item) {
             sublabel: formatRelativeTime(item.updatedAt || item.timestamp),
         };
     }
+    const lifecycleState = item.lifecycleState || item.state || (item.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : null);
+    const completedAt = getActivityCompletionTime(item);
+    if (lifecycleState === TRANSFER_STATES.ALREADY_CLAIMED || item.alreadyMinted) {
+        return {
+            label: 'Completed',
+            sublabel: completedAt ? formatRelativeTime(completedAt) : 'Already claimed',
+        };
+    }
     const started = item.timestamp ? new Date(item.timestamp).getTime() : NaN;
-    const ended = item.updatedAt ? new Date(item.updatedAt).getTime() : NaN;
+    const ended = completedAt ? new Date(completedAt).getTime() : NaN;
     return {
         label: Number.isFinite(started) && Number.isFinite(ended) ? formatDuration(ended - started) : 'Complete',
-        sublabel: formatRelativeTime(item.updatedAt || item.timestamp),
+        sublabel: formatRelativeTime(completedAt || item.timestamp),
     };
 }
 
@@ -3501,7 +3544,7 @@ function getVisibleActivities() {
         ].filter(Boolean).join(' ').toLowerCase();
         const searchMatches = !query || searchText.includes(query);
         return statusMatches && chainMatches && searchMatches;
-    });
+    }).sort((a, b) => getActivitySortTime(b) - getActivitySortTime(a));
 }
 
 function openTransactionDetails(item) {
@@ -3692,7 +3735,7 @@ function addActivity(type, from, to, amount, status, txHash = null, extra = {}) 
         status,
         txHash: txHash || extra.txHash || null,
         mintTxHash: txHash || extra.mintTxHash || extra.txHash || null,
-        updatedAt: new Date().toISOString(),
+        updatedAt: extra.updatedAt || new Date().toISOString(),
     };
 
     if (existingIndex !== -1) {
