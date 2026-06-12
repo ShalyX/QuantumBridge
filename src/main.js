@@ -80,7 +80,24 @@ const CCTP_DOMAINS = {
     arc: 26
 };
 
-const FORWARDER_DESTINATIONS = new Set(['arc', 'ethereum']);
+const isTruthyFlag = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+
+const SOLANA_FORWARDER_EXPERIMENT_ENABLED = (() => {
+    if (isTruthyFlag(import.meta.env.VITE_EXPERIMENTAL_SOLANA_FORWARDER)) return true;
+    if (typeof window === 'undefined') return false;
+    try {
+        const params = new URLSearchParams(window.location.search);
+        return isTruthyFlag(params.get('solanaForwarder')) || isTruthyFlag(params.get('qbSolanaForwarder'));
+    } catch {
+        return false;
+    }
+})();
+
+const FORWARDER_DESTINATIONS = new Set([
+    'arc',
+    'ethereum',
+    ...(SOLANA_FORWARDER_EXPERIMENT_ENABLED ? ['solana'] : []),
+]);
 
 const IRIS_API = 'https://iris-api-sandbox.circle.com';
 const SOLANA_DEVNET_RPC = 'https://api.devnet.solana.com';
@@ -1439,8 +1456,18 @@ function formatUsdcMinorUnits(value) {
     return fraction ? `${whole}.${fraction}` : `${whole}`;
 }
 
-async function fetchForwarderFeeMinorUnits(sourceDomain, destinationDomain) {
-    const response = await fetch(`${IRIS_API}/v2/burn/USDC/fees/${sourceDomain}/${destinationDomain}?forward=true`);
+function shouldIncludeRecipientSetupForForwarder(destinationChain) {
+    return destinationChain === 'solana' && SOLANA_FORWARDER_EXPERIMENT_ENABLED;
+}
+
+function isExperimentalSolanaForwarderRoute(destinationChain) {
+    return destinationChain === 'solana' && FORWARDER_DESTINATIONS.has(destinationChain);
+}
+
+async function fetchForwarderFeeMinorUnits(sourceDomain, destinationDomain, { includeRecipientSetup = false } = {}) {
+    const params = new URLSearchParams({ forward: 'true' });
+    if (includeRecipientSetup) params.set('includeRecipientSetup', 'true');
+    const response = await fetch(`${IRIS_API}/v2/burn/USDC/fees/${sourceDomain}/${destinationDomain}?${params.toString()}`);
     if (!response.ok) throw new Error(`Circle Forwarder fee lookup failed (${response.status})`);
     const feeTiers = await response.json();
     const fastTier = Array.isArray(feeTiers)
@@ -1455,10 +1482,11 @@ async function assertForwarderAmountCoversFee({ from, to, amount }) {
     const sourceDomain = CCTP_DOMAINS[from];
     const destinationDomain = CCTP_DOMAINS[to];
     if (sourceDomain === undefined || destinationDomain === undefined) return null;
+    const includeRecipientSetup = shouldIncludeRecipientSetupForForwarder(to);
 
     const [amountMinor, forwarderFeeMinor] = await Promise.all([
         Promise.resolve(parseUsdcMinorUnits(amount)),
-        fetchForwarderFeeMinorUnits(sourceDomain, destinationDomain),
+        fetchForwarderFeeMinorUnits(sourceDomain, destinationDomain, { includeRecipientSetup }),
     ]);
     if (amountMinor <= forwarderFeeMinor) {
         const minimumMinor = forwarderFeeMinor + 1n;
@@ -1467,6 +1495,27 @@ async function assertForwarderAmountCoversFee({ from, to, amount }) {
         );
     }
     return forwarderFeeMinor;
+}
+
+function syncForwardingNotice() {
+    if (!forwardingNotice || !destinationChainSelect) return;
+    const destination = destinationChainSelect.value;
+    const isForwarderRoute = FORWARDER_DESTINATIONS.has(destination);
+    forwardingNotice.style.display = isForwarderRoute ? 'flex' : 'none';
+    if (!isForwarderRoute) return;
+
+    const title = forwardingNotice.querySelector('strong');
+    const body = forwardingNotice.querySelector('p');
+    if (isExperimentalSolanaForwarderRoute(destination)) {
+        if (title) title.textContent = 'Experimental Solana Forwarder';
+        if (body) {
+            body.textContent = 'Circle Forwarder will attempt the Solana mint without destination wallet signing. Manual recovery remains available if this route needs it.';
+        }
+        return;
+    }
+
+    if (title) title.textContent = 'Gasless Arrival Enabled';
+    if (body) body.textContent = 'Circle Forwarder will complete the destination mint. No destination gas required.';
 }
 
 function syncDestinationAddressUI() {
@@ -2915,7 +2964,7 @@ function onChainChange() {
         const otherChains = Array.from(destinationChainSelect.options).map(o => o.value).filter(v => v !== from);
         destinationChainSelect.value = otherChains[0];
     }
-    forwardingNotice.style.display = FORWARDER_DESTINATIONS.has(destinationChainSelect.value) ? 'flex' : 'none';
+    syncForwardingNotice();
     syncDestinationAddressUI();
     startEstimatedArrivalMonitor(originChainSelect.value, destinationChainSelect.value);
     updateBalances(); checkReady();
@@ -3171,9 +3220,13 @@ teleportBtn.addEventListener('click', async () => {
         await syncTransferToBackend(activeBridgeContext, 'upsert');
 
         if (useForwarder) {
+            const includesRecipientSetup = shouldIncludeRecipientSetupForForwarder(to);
+            if (isExperimentalSolanaForwarderRoute(to)) {
+                log('Solana Forwarder experiment enabled. Circle will attempt the destination mint without Solana wallet signing; Recovery remains available if needed.', 'loading');
+            }
             const feeMinor = await assertForwarderAmountCoversFee({ from, to, amount: formattedAmount });
             if (feeMinor !== null) {
-                log(`Circle Forwarder route fee estimate: ${formatUsdcMinorUnits(feeMinor)} USDC.`, 'loading');
+                log(`Circle Forwarder route fee estimate${includesRecipientSetup ? ' with Solana recipient setup' : ''}: ${formatUsdcMinorUnits(feeMinor)} USDC.`, 'loading');
             }
         }
 
@@ -3919,9 +3972,7 @@ syncRecoveryActivityCards();
 renderActivity();
 syncRecoveryRouteControls();
 syncDestinationAddressUI();
-if (forwardingNotice && destinationChainSelect) {
-    forwardingNotice.style.display = FORWARDER_DESTINATIONS.has(destinationChainSelect.value) ? 'flex' : 'none';
-}
+syncForwardingNotice();
 startEstimatedArrivalMonitor(originChainSelect?.value, destinationChainSelect?.value);
 renderPendingRecoveries();
 renderRecoveryBanner();
