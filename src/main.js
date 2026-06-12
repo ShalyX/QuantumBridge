@@ -273,7 +273,10 @@ kit.on('*', async (event) => {
             });
         }
         if (state === 'error') {
-            const productMessage = getProductErrorMessage(step?.error || step?.errorMessage || step);
+            const productMessage = getBridgeStepProductMessage(methodName, step?.error || step?.errorMessage || step, {
+                context: eventContext,
+                txHash,
+            });
             const nextState = eventContext.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
             patchTransferRecord(eventContext.id, {
                 state: nextState,
@@ -585,6 +588,8 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     solanaRecoveryWallet: 'Connect Solflare or Backpack to complete this route.',
     phantomSourceUnsupported: 'Phantom is limited for this CCTP route. Connect Backpack or Solflare to complete it.',
     phantomTestFailed: 'Phantom could not complete this signing flow. If a burn succeeded, open Recovery and resume with any supported Solana wallet.',
+    phantomBurnSimulationFailed: 'Phantom signed, but the source burn simulation failed before submission. No USDC was burned; try again or use Backpack/Solflare for this route.',
+    sourceBurnSimulationFailed: 'The source burn could not be simulated, so no burn transaction was submitted. Try again, or use a supported wallet for this route.',
     walletConnection: 'Wallet connection failed. Refresh and reconnect this wallet from the modal.',
     walletUnauthorized: 'Wallet authorization expired. Reconnect your EVM wallet, switch to the requested account and network, then approve the transaction.',
     walletPluginClosed: 'Wallet connection closed. Reopen or unlock the wallet, then try again.',
@@ -669,18 +674,19 @@ function getErrorCodeSummary(error) {
 function summarizeBridgeEventForConsole(event) {
     const values = event?.values || {};
     const error = values.error || values.errorMessage || null;
+    const methodName = event?.method || values.name || null;
     return {
         protocol: event?.protocol || null,
         version: event?.version || null,
         traceId: event?.traceId || null,
-        method: event?.method || null,
+        method: methodName,
         values: {
             name: values.name || null,
             state: values.state || null,
             txHash: values.txHash ? shortHash(values.txHash) : null,
             forwarded: Boolean(values.forwarded),
             error: error ? {
-                productMessage: getProductErrorMessage(error),
+                productMessage: getBridgeStepProductMessage(methodName, error, { txHash: values.txHash }),
                 name: error?.name || null,
                 code: getErrorCodeSummary(error),
             } : null,
@@ -1454,6 +1460,38 @@ function getProductErrorMessage(error) {
     }
     if (lower.includes('already claimed') || lower.includes('already minted')) return PRODUCT_ERROR_MESSAGES.alreadyClaimed;
     return text || PRODUCT_ERROR_MESSAGES.genericRecoverable;
+}
+
+function isBridgeSimulationFailure(error) {
+    const text = getErrorText(error).toLowerCase();
+    const code = getErrorCodeSummary(error);
+    return String(code) === '5002' ||
+        text.includes('onchain_simulation_failed') ||
+        text.includes('transaction simulation failed') ||
+        text.includes('simulation failed') ||
+        text.includes('transaction reverted');
+}
+
+function isBridgeBurnStage(methodName) {
+    const lower = String(methodName || '').toLowerCase();
+    return lower.includes('burn') || lower.includes('deposit');
+}
+
+function isPhantomBridgeContext(context = {}) {
+    return context?.solanaWalletType === 'phantom' ||
+        context?.sourceWalletType === 'phantom' ||
+        context?.destinationWalletType === 'phantom' ||
+        solanaWalletType === 'phantom';
+}
+
+function getBridgeStepProductMessage(methodName, error, details = {}) {
+    const hasSubmittedBurn = Boolean(details.txHash || details.context?.burnTxHash);
+    if (isBridgeBurnStage(methodName) && isBridgeSimulationFailure(error) && !hasSubmittedBurn) {
+        return isPhantomBridgeContext(details.context)
+            ? PRODUCT_ERROR_MESSAGES.phantomBurnSimulationFailed
+            : PRODUCT_ERROR_MESSAGES.sourceBurnSimulationFailed;
+    }
+    return getProductErrorMessage(error);
 }
 
 function isEvmTxHash(value) {
@@ -3249,6 +3287,9 @@ teleportBtn.addEventListener('click', async () => {
             wallets: [sourceWallet, destinationWallet, recipient].filter(Boolean),
             manualDestinationAddress: getManualDestinationAddress() || null,
             useForwarder,
+            solanaWalletType: (from === 'solana' || to === 'solana') ? solanaWalletType : null,
+            sourceWalletType: from === 'solana' ? solanaWalletType : 'evm',
+            destinationWalletType: to === 'solana' ? solanaWalletType : 'evm',
             sourceDomain: CCTP_DOMAINS[from],
             destinationDomain: CCTP_DOMAINS[to],
             createdAt: new Date().toISOString(),
@@ -3340,7 +3381,14 @@ teleportBtn.addEventListener('click', async () => {
         } else {
             const failedStep = result.steps?.find(s => s.state === 'error');
             const stepError = failedStep?.error;
-            const productMessage = getProductErrorMessage(stepError || failedStep?.errorMessage || PRODUCT_ERROR_MESSAGES.genericRecoverable);
+            const productMessage = getBridgeStepProductMessage(
+                failedStep?.name || 'bridge.result',
+                stepError || failedStep?.errorMessage || PRODUCT_ERROR_MESSAGES.genericRecoverable,
+                {
+                    context: finalBridgeContext,
+                    txHash: failedStep?.txHash,
+                },
+            );
             if (stepError && stepError.cause && stepError.cause.trace) {
                 const trace = stepError.cause.trace;
                 console.warn('[QuantumBridge] Bridge step failed', {
