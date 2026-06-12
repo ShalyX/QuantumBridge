@@ -55,7 +55,7 @@ Current known audit noise is moderate transitive exposure through `@solana/web3.
 | --- | --- | --- | --- | --- |
 | Solana Devnet -> Arc Testnet | Backpack | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
 | Solana Devnet -> Arc Testnet | Solflare | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
-| Solana Devnet -> Arc Testnet | Phantom | Rabby or Zerion | Chrome / Edge | Limited/blocked in UI; use Backpack or Solflare |
+| Solana Devnet -> Arc Testnet | Phantom | Rabby or Zerion | Chrome / Edge | Limited test path; capture SDK errors and recovery behavior |
 | Arc Testnet -> Solana Devnet | Rabby or Zerion | Backpack or Solflare or pasted Solana recipient | Chrome / Edge | Manual mint/resume by default; experimental Circle Forwarder with `?solanaForwarder=1` |
 | Ethereum Sepolia -> Arc Testnet | Rabby or Zerion | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
 | Arc Testnet -> Ethereum Sepolia | Rabby or Zerion | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
@@ -70,7 +70,7 @@ Circle Forwarder is enabled by default when the destination is `arc` or `ethereu
 - Refresh after burn and before mint; confirm the banner says a transfer is ready to resume.
 - Click `Resume all`; confirm completed or already claimed transfers leave the pending banner and show a success activity card.
 - Paste a known burn transaction into `Resume Transfers`; confirm route, attestation, and destination mint messaging stays product-facing.
-- Attempt Solana source transfer with Phantom; confirm the UI asks for Solflare or Backpack instead of exposing raw adapter errors.
+- Attempt Solana source transfer with Phantom; confirm the UI allows the test path, logs the Phantom test notice, and saves recovery if signing fails.
 - Confirm the live time estimate updates from route/network health probes and does not count down.
 - Confirm failed bridge and recovery attempts create `transfer.failed` or `transfer.failure_captured` events in the support bundle and produce a Render log entry.
 - Try a tiny Solana Devnet -> Ethereum Sepolia transfer below the current Circle Forwarder fee and confirm the app blocks before wallet signing with a product message.
@@ -82,7 +82,7 @@ Use user-facing messages for expected bridge states:
 
 - Already claimed: `This burn was already claimed.`
 - Attestation pending: `Circle attestation is not ready yet.`
-- Unsupported Solana wallet for route: `Phantom is limited for this CCTP route. Connect Backpack or Solflare to complete it.`
+- Phantom test failure: `Phantom could not complete this signing flow. If a burn succeeded, open Recovery and resume with any supported Solana wallet.`
 - Forwarder fee exceeds amount: `This transfer is below the current Circle Forwarder fee for this route. Increase the amount and try again.`
 - Wallet cancellation: `Wallet approval was cancelled.`
 

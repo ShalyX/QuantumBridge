@@ -27,7 +27,7 @@ Wallet support:
 | --- | --- |
 | Backpack | Supported for Solana CCTP routes |
 | Solflare | Supported for Solana CCTP routes |
-| Phantom | Limited for current CCTP Solana routes; use Backpack or Solflare |
+| Phantom | Limited test path enabled for Solana CCTP routes; Backpack or Solflare remain recommended |
 | Rabby | Supported for EVM routes |
 | Zerion | Supported where the browser exposes the needed EVM provider |
 
@@ -45,7 +45,7 @@ Known limits:
 - Circle Forwarder fees are dynamic by route. Very small forwarded transfers can be below the current route fee and will be blocked before wallet signing.
 - Solana destination Forwarder is experimental and opt-in with `VITE_EXPERIMENTAL_SOLANA_FORWARDER=1` or `?solanaForwarder=1`; manual Recovery remains the fallback.
 - Render Free runs the Iris polling worker inside the web service. Polling pauses if the service sleeps.
-- Phantom is intentionally blocked or labeled limited for Solana CCTP routes until wallet signing behavior is verified.
+- Phantom is labeled limited for Solana CCTP routes while its signing behavior is being verified.
 - Browser wallet availability depends on each browser extension exposing the expected provider.
 - Live time estimates are estimates based on route and current RPC/network health; they are not countdown timers.
 

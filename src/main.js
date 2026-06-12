@@ -584,6 +584,7 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     attestationPending: 'Circle attestation is not ready yet.',
     solanaRecoveryWallet: 'Connect Solflare or Backpack to complete this route.',
     phantomSourceUnsupported: 'Phantom is limited for this CCTP route. Connect Backpack or Solflare to complete it.',
+    phantomTestFailed: 'Phantom could not complete this signing flow. If a burn succeeded, open Recovery and resume with any supported Solana wallet.',
     walletConnection: 'Wallet connection failed. Refresh and reconnect this wallet from the modal.',
     walletUnauthorized: 'Wallet authorization expired. Reconnect your EVM wallet, switch to the requested account and network, then approve the transaction.',
     walletPluginClosed: 'Wallet connection closed. Reopen or unlock the wallet, then try again.',
@@ -1433,7 +1434,10 @@ function getProductErrorMessage(error) {
     ) {
         return PRODUCT_ERROR_MESSAGES.solanaAtaCreation;
     }
-    if (lower.includes('connect backpack') || lower.includes('connect solflare') || lower.includes('solflare or backpack') || lower.includes('phantom')) {
+    if (lower.includes('phantom')) {
+        return PRODUCT_ERROR_MESSAGES.phantomTestFailed;
+    }
+    if (lower.includes('connect backpack') || lower.includes('connect solflare') || lower.includes('solflare or backpack')) {
         return PRODUCT_ERROR_MESSAGES.solanaRecoveryWallet;
     }
     if (lower.includes('plugin closed') || lower.includes('disconnectplugin')) {
@@ -2047,9 +2051,6 @@ async function submitSolanaMint(sourceChain, message, attestation, eventNonce, d
     if (!solanaAdapter || !solanaAccount) {
         throw new Error(PRODUCT_ERROR_MESSAGES.solanaRecoveryWallet);
     }
-    if (solanaWalletType === 'phantom') {
-        throw new Error(PRODUCT_ERROR_MESSAGES.solanaRecoveryWallet);
-    }
 
     const sourceChainDefinition = CIRCLE_CHAIN_DEFINITIONS[sourceChain];
     const solanaChainDefinition = CIRCLE_CHAIN_DEFINITIONS.solana;
@@ -2562,11 +2563,6 @@ function renderSolanaWallets() {
                 alert(`${walletType} wallet not detected. Backpack and Solflare are supported for Solana routes; Phantom is limited for this route.`);
                 return;
             }
-            if (walletType === 'phantom') {
-                sounds.play('error');
-                log(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported, 'error');
-                return;
-            }
             closeWalletModal();
             await connectSolanaWallet(walletType);
         });
@@ -2992,6 +2988,9 @@ async function connectSolanaWallet(walletType, options = {}) {
         }
         rememberSolanaWallet(walletType, solanaAccount);
         log(`${silent ? 'Solana Fleet Restored' : 'Solana Fleet Connected'}: ${solanaAccount}`, 'success');
+        if (walletType === 'phantom') {
+            log('Phantom test path enabled for this session. If signing fails, the burn will still be recoverable.', 'loading');
+        }
         checkReady(); updateBalances();
         syncServerTransfersForConnectedWallets();
         return true;
@@ -3223,12 +3222,6 @@ teleportBtn.addEventListener('click', async () => {
     const amount = amountInput.value;
     let finalEtaLabel = null;
     let transferContext = null;
-    if ((from === 'solana' || to === 'solana') && solanaWalletType === 'phantom') {
-        sounds.play('error');
-        log(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported, "error");
-        checkReady();
-        return;
-    }
     
     try {
         sounds.play('warp');
@@ -3463,8 +3456,7 @@ function checkReady() {
     } catch {
         destinationReady = false;
     }
-    const phantomUnsupportedRoute = (from === 'solana' || to === 'solana') && solanaWalletType === 'phantom';
-    teleportBtn.disabled = !sourceLinked || !destinationReady || !destinationValid || !destinationSignerReady || amount <= 0 || from === to || phantomUnsupportedRoute;
+    teleportBtn.disabled = !sourceLinked || !destinationReady || !destinationValid || !destinationSignerReady || amount <= 0 || from === to;
     const btnText = teleportBtn.querySelector('.btn-text');
     if (!sourceLinked) {
         btnText.innerText = `Connect ${from === 'solana' ? 'Solana' : 'EVM'} source`;
@@ -3474,8 +3466,6 @@ function checkReady() {
         btnText.innerText = "Check destination address";
     } else if (!destinationSignerReady) {
         btnText.innerText = "Connect Solana to receive";
-    } else if (phantomUnsupportedRoute) {
-        btnText.innerText = "Use Backpack or Solflare";
     } else {
         btnText.innerText = "Initiate Teleportation";
     }
