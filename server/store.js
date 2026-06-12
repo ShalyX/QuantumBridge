@@ -171,6 +171,36 @@ function filterTransfersByWallet(transfers, wallet) {
     ].filter(Boolean).some(value => String(value).toLowerCase() === needle));
 }
 
+function toTime(value) {
+    const time = new Date(value || '').getTime();
+    return Number.isFinite(time) ? time : 0;
+}
+
+function getTransferListSortTime(transfer) {
+    const metadata = transfer.metadata || {};
+    const terminal = transfer.state === 'completed' || transfer.state === 'already_claimed';
+    const candidates = terminal
+        ? [
+            metadata.completedAt,
+            metadata.finishedAt,
+            metadata.claimedAt,
+            metadata.forwarderConfirmedAt,
+            transfer.mintTxHash ? transfer.updatedAt : null,
+            transfer.createdAt,
+        ]
+        : [transfer.updatedAt, transfer.createdAt];
+
+    for (const candidate of candidates) {
+        const time = toTime(candidate);
+        if (time > 0) return time;
+    }
+    return 0;
+}
+
+function sortTransferList(transfers) {
+    return [...transfers].sort((a, b) => getTransferListSortTime(b) - getTransferListSortTime(a));
+}
+
 function inferRouteFromTransferId(id = '') {
     const parts = String(id).toLowerCase().split('-');
     const chains = new Set(['arc', 'solana', 'ethereum']);
@@ -365,8 +395,9 @@ class SqliteStore {
 
     async listTransfers({ wallet, limit = 500 } = {}) {
         const safeLimit = clampListLimit(limit);
-        const rows = this.db.prepare('SELECT * FROM transfers ORDER BY updated_at DESC LIMIT ?').all(safeLimit);
-        return filterTransfersByWallet(rows.map(rowToTransfer), wallet);
+        const internalLimit = Math.max(safeLimit, 500);
+        const rows = this.db.prepare('SELECT * FROM transfers ORDER BY updated_at DESC LIMIT ?').all(internalLimit);
+        return sortTransferList(filterTransfersByWallet(rows.map(rowToTransfer), wallet)).slice(0, safeLimit);
     }
 
     async listTransfersForWorker() {
@@ -582,8 +613,9 @@ class PostgresStore {
 
     async listTransfers({ wallet, limit = 500 } = {}) {
         const safeLimit = clampListLimit(limit);
-        const result = await this.pool.query('SELECT * FROM transfers ORDER BY updated_at DESC LIMIT $1', [safeLimit]);
-        return filterTransfersByWallet(result.rows.map(rowToTransfer), wallet);
+        const internalLimit = Math.max(safeLimit, 500);
+        const result = await this.pool.query('SELECT * FROM transfers ORDER BY updated_at DESC LIMIT $1', [internalLimit]);
+        return sortTransferList(filterTransfersByWallet(result.rows.map(rowToTransfer), wallet)).slice(0, safeLimit);
     }
 
     async listTransfersForWorker() {
