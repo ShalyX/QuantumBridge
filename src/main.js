@@ -154,91 +154,148 @@ let pendingRecoveriesCache = [];
 let activityHistory = [];
 let globalActivityHistory = [];
 let walletViewGeneration = 0;
+const bridgeContextsById = new Map();
+const bridgeTraceIdToTransferId = new Map();
+
+function getBridgeTraceId(event) {
+    return event?.traceId || event?.values?.traceId || null;
+}
+
+function rememberBridgeContext(context) {
+    if (!context?.id) return context || null;
+    bridgeContextsById.set(context.id, context);
+    if (context.traceId) bridgeTraceIdToTransferId.set(context.traceId, context.id);
+    return context;
+}
+
+function patchBridgeContext(contextOrId, patch = {}) {
+    const current = typeof contextOrId === 'string'
+        ? bridgeContextsById.get(contextOrId)
+        : contextOrId;
+    if (!current?.id) return current || null;
+    const next = { ...current, ...patch };
+    rememberBridgeContext(next);
+    if (activeBridgeContext?.id === next.id) activeBridgeContext = next;
+    return next;
+}
+
+function resolveBridgeEventContext(event) {
+    const traceId = getBridgeTraceId(event);
+    const mappedTransferId = traceId ? bridgeTraceIdToTransferId.get(traceId) : null;
+    if (mappedTransferId && bridgeContextsById.has(mappedTransferId)) {
+        return bridgeContextsById.get(mappedTransferId);
+    }
+
+    if (!activeBridgeContext?.id) return null;
+    const methodName = String(event?.method || '').toLowerCase();
+    const isLateStageEvent = methodName.includes('mint') || methodName.includes('attestation');
+    if (traceId && isLateStageEvent && activeBridgeContext.traceId && activeBridgeContext.traceId !== traceId) {
+        return null;
+    }
+    const context = traceId ? patchBridgeContext(activeBridgeContext, { traceId }) : rememberBridgeContext(activeBridgeContext);
+    if (traceId && context?.id) bridgeTraceIdToTransferId.set(traceId, context.id);
+    return context;
+}
+
+function isLiveBridgeContext(context) {
+    return Boolean(context?.id && activeBridgeContext?.id === context.id);
+}
+
+function getBridgeEventTxChain(context, methodName) {
+    const lowerMethod = String(methodName || '').toLowerCase();
+    if (lowerMethod.includes('mint') || lowerMethod.includes('receive')) return context?.to || destinationChainSelect?.value || 'arc';
+    if (lowerMethod.includes('approve') || lowerMethod.includes('burn') || lowerMethod.includes('deposit')) return context?.from || originChainSelect?.value || 'arc';
+    return context?.from || originChainSelect?.value || 'arc';
+}
 
 kit.on('*', async (event) => {
     console.log("[QuantumBridge Event]", summarizeBridgeEventForConsole(event));
     const { method, values: step } = event;
     const { state, txHash } = step || {};
-    const from = originChainSelect?.value || 'arc';
     const methodName = String(method || '');
-    if (activeBridgeContext?.id) {
-        recordTransferEvent(activeBridgeContext.id, `bridge.${methodName || 'event'}.${state || 'unknown'}`, event);
+    let eventContext = resolveBridgeEventContext(event);
+    const shouldUpdateLiveConsole = isLiveBridgeContext(eventContext);
+    if (eventContext?.id) {
+        recordTransferEvent(eventContext.id, `bridge.${methodName || 'event'}.${state || 'unknown'}`, event);
     }
     
-    if (state === 'loading') {
+    if (shouldUpdateLiveConsole && state === 'loading') {
         if (method === 'approve') log("Quantum Handshake: Approving USDC transfer...", "loading");
         if (method === 'burn') log("Quantum Handshake: Commencing USDC burn...", "loading");
     }
-    if (state === 'success' && txHash) {
-        const link = `${EXPLORERS[from]}/tx/${txHash}`;
-        log(`[On-Chain] ${method.toUpperCase()}: <a href="${link}" target="_blank" class="log-link">${txHash.slice(0, 8)}...</a>`, 'success');
+    if (shouldUpdateLiveConsole && state === 'success' && txHash) {
+        const chain = getBridgeEventTxChain(eventContext, methodName);
+        const link = getLink(chain, txHash);
+        log(`[On-Chain] ${methodName.toUpperCase()}: <a href="${link}" target="_blank" class="log-link">${txHash.slice(0, 8)}...</a>`, 'success');
     }
-    if (state === 'success' && txHash && activeBridgeContext && methodName.toLowerCase().includes('burn')) {
-        activeBridgeContext = { ...activeBridgeContext, burnTxHash: txHash };
+    if (state === 'success' && txHash && eventContext && methodName.toLowerCase().includes('burn')) {
+        eventContext = patchBridgeContext(eventContext, { burnTxHash: txHash });
         upsertPendingRecovery({
-            ...activeBridgeContext,
+            ...eventContext,
             burnTxHash: txHash,
             status: 'burned',
             state: TRANSFER_STATES.BURN_SUBMITTED,
             updatedAt: new Date().toISOString(),
         });
-        patchTransferRecord(activeBridgeContext.id, {
+        patchTransferRecord(eventContext.id, {
             burnTxHash: txHash,
             state: TRANSFER_STATES.BURN_SUBMITTED,
             errorMessage: null,
         });
-        addActivity('Teleport', activeBridgeContext.from, activeBridgeContext.to, activeBridgeContext.amount, 'pending', null, {
+        addActivity('Teleport', eventContext.from, eventContext.to, eventContext.amount, 'pending', null, {
             burnTxHash: txHash,
-            recoveryId: activeBridgeContext.id,
-            sourceWallet: activeBridgeContext.sourceWallet,
-            destinationWallet: activeBridgeContext.destinationWallet,
-            recipient: activeBridgeContext.recipient,
-            wallets: activeBridgeContext.wallets,
-            useForwarder: activeBridgeContext.useForwarder,
+            recoveryId: eventContext.id,
+            sourceWallet: eventContext.sourceWallet,
+            destinationWallet: eventContext.destinationWallet,
+            recipient: eventContext.recipient,
+            wallets: eventContext.wallets,
+            useForwarder: eventContext.useForwarder,
             lifecycleState: TRANSFER_STATES.BURN_SUBMITTED,
             lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.BURN_SUBMITTED),
         });
-        log(`Recovery checkpoint saved for burn ${shortHash(txHash)}.`, 'success');
-        if (activeBridgeContext.useForwarder) {
+        if (shouldUpdateLiveConsole) log(`Recovery checkpoint saved for burn ${shortHash(txHash)}.`, 'success');
+        if (shouldUpdateLiveConsole && eventContext.useForwarder) {
             log('Burn confirmed. Waiting for Circle attestation and Forwarder mint on the destination chain...', 'loading');
         }
     }
-    if (activeBridgeContext) {
+    if (eventContext) {
         const lowerMethod = methodName.toLowerCase();
         if (state === 'loading' && lowerMethod.includes('attestation')) {
-            patchTransferRecord(activeBridgeContext.id, {
+            patchTransferRecord(eventContext.id, {
                 state: TRANSFER_STATES.ATTESTATION_PENDING,
                 errorMessage: null,
             });
         }
         if (state === 'loading' && lowerMethod.includes('mint')) {
-            patchTransferRecord(activeBridgeContext.id, {
+            patchTransferRecord(eventContext.id, {
                 state: TRANSFER_STATES.MINT_SUBMITTED,
                 errorMessage: null,
             });
         }
         if (state === 'error') {
             const productMessage = getProductErrorMessage(step?.error || step?.errorMessage || step);
-            const nextState = activeBridgeContext.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
-            patchTransferRecord(activeBridgeContext.id, {
+            const nextState = eventContext.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
+            patchTransferRecord(eventContext.id, {
                 state: nextState,
                 errorMessage: productMessage,
             });
-            recordTransferFailure(activeBridgeContext.id, {
+            recordTransferFailure(eventContext.id, {
                 stage: methodName || 'bridge.event',
-                route: `${activeBridgeContext.from}->${activeBridgeContext.to}`,
+                route: `${eventContext.from}->${eventContext.to}`,
                 state: nextState,
-                burnTxHash: activeBridgeContext.burnTxHash || null,
+                burnTxHash: eventContext.burnTxHash || null,
                 productMessage,
                 error: step?.error || step?.errorMessage || step,
             });
         }
     }
-    updateSteps(method, state);
-    if (method === 'approve') updateStepper(1, state === 'success' ? 'complete' : 'active');
-    if (method === 'burn') updateStepper(2, state === 'success' ? 'complete' : 'active');
-    if (method === 'fetchAttestation') updateStepper(3, state === 'success' ? 'complete' : 'active');
-    if (method === 'mint') updateStepper(4, state === 'success' ? 'complete' : 'active');
+    if (shouldUpdateLiveConsole) {
+        updateSteps(method, state);
+        if (method === 'approve') updateStepper(1, state === 'success' ? 'complete' : 'active');
+        if (method === 'burn') updateStepper(2, state === 'success' ? 'complete' : 'active');
+        if (method === 'fetchAttestation') updateStepper(3, state === 'success' ? 'complete' : 'active');
+        if (method === 'mint') updateStepper(4, state === 'success' ? 'complete' : 'active');
+    }
 });
 
 // Quantum Sound Engine (Web Audio API Synthesizer)
@@ -3165,6 +3222,7 @@ teleportBtn.addEventListener('click', async () => {
     const to = destinationChainSelect.value;
     const amount = amountInput.value;
     let finalEtaLabel = null;
+    let transferContext = null;
     if ((from === 'solana' || to === 'solana') && solanaWalletType === 'phantom') {
         sounds.play('error');
         log(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported, "error");
@@ -3187,7 +3245,7 @@ teleportBtn.addEventListener('click', async () => {
         
         const recipient = getDestinationRecipient(to);
         const formattedAmount = parseFloat(amount).toFixed(2);
-        activeBridgeContext = {
+        transferContext = {
             id: `${Date.now()}-${from}-${to}`,
             from,
             to,
@@ -3202,22 +3260,23 @@ teleportBtn.addEventListener('click', async () => {
             destinationDomain: CCTP_DOMAINS[to],
             createdAt: new Date().toISOString(),
         };
+        activeBridgeContext = rememberBridgeContext(transferContext);
         upsertTransferRecord({
-            ...activeBridgeContext,
-            recoveryId: activeBridgeContext.id,
+            ...transferContext,
+            recoveryId: transferContext.id,
             state: TRANSFER_STATES.CREATED,
         });
         addActivity('Teleport', from, to, amount, 'pending', null, {
-            recoveryId: activeBridgeContext.id,
+            recoveryId: transferContext.id,
             sourceWallet,
             destinationWallet,
             recipient,
-            wallets: activeBridgeContext.wallets,
+            wallets: transferContext.wallets,
             useForwarder,
             lifecycleState: TRANSFER_STATES.CREATED,
             lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.CREATED),
         });
-        await syncTransferToBackend(activeBridgeContext, 'upsert');
+        await syncTransferToBackend(transferContext, 'upsert');
 
         if (useForwarder) {
             const includesRecipientSetup = shouldIncludeRecipientSetupForForwarder(to);
@@ -3248,38 +3307,39 @@ teleportBtn.addEventListener('click', async () => {
         const result = useForwarder
             ? await Promise.race([
                 bridgePromise,
-                waitForForwarderCompletion(activeBridgeContext.id).catch(error => {
+                waitForForwarderCompletion(transferContext.id).catch(error => {
                     console.warn('[QuantumBridge] Forwarder fast completion watcher fell back to SDK result.', error);
                     return bridgePromise;
                 }),
             ])
             : await bridgePromise;
+        const finalBridgeContext = bridgeContextsById.get(transferContext.id) || transferContext;
 
         if (result.state === 'success') {
             sounds.play('success');
             finalEtaLabel = 'Arrived';
             successOverlay.style.display = 'flex';
             syncBodyScrollLock();
-            if (activeBridgeContext?.burnTxHash) {
-                patchPendingRecovery(activeBridgeContext.burnTxHash, {
+            if (finalBridgeContext.burnTxHash) {
+                patchPendingRecovery(finalBridgeContext.burnTxHash, {
                     status: 'minted',
                     state: TRANSFER_STATES.COMPLETED,
                     mintTxHash: result.transactionHash || null,
                     errorMessage: null,
                 });
             }
-            patchTransferRecord(activeBridgeContext?.id, {
+            patchTransferRecord(transferContext.id, {
                 state: TRANSFER_STATES.COMPLETED,
                 mintTxHash: result.transactionHash || null,
                 errorMessage: null,
             });
             addActivity('Teleport', from, to, amount, 'success', result.transactionHash, {
-                recoveryId: activeBridgeContext?.id,
-                burnTxHash: activeBridgeContext?.burnTxHash || null,
+                recoveryId: transferContext.id,
+                burnTxHash: finalBridgeContext.burnTxHash || null,
                 sourceWallet,
                 destinationWallet,
                 recipient,
-                wallets: activeBridgeContext?.wallets || [],
+                wallets: finalBridgeContext.wallets || [],
                 useForwarder,
                 lifecycleState: TRANSFER_STATES.COMPLETED,
                 lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.COMPLETED),
@@ -3302,23 +3362,23 @@ teleportBtn.addEventListener('click', async () => {
                 if (logsStr.includes('remote_token_messenger')) console.error("DIAGNOSIS: Destination domain unsupported on Solana Devnet.");
             }
             finalEtaLabel = 'Paused';
-            const nextState = activeBridgeContext?.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
-            patchTransferRecord(activeBridgeContext?.id, {
+            const nextState = finalBridgeContext.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
+            patchTransferRecord(transferContext.id, {
                 state: nextState,
                 errorMessage: productMessage,
             });
-            recordTransferFailure(activeBridgeContext?.id, {
+            recordTransferFailure(transferContext.id, {
                 stage: failedStep?.name || 'bridge.result',
                 route: `${from}->${to}`,
                 state: nextState,
-                burnTxHash: activeBridgeContext?.burnTxHash || null,
+                burnTxHash: finalBridgeContext.burnTxHash || null,
                 productMessage,
                 error: stepError || failedStep?.errorMessage || failedStep,
                 sourceWallet,
                 destinationWallet,
             });
-            if (activeBridgeContext?.burnTxHash) {
-                patchPendingRecovery(activeBridgeContext.burnTxHash, {
+            if (finalBridgeContext.burnTxHash) {
+                patchPendingRecovery(finalBridgeContext.burnTxHash, {
                     status: 'burned',
                     state: TRANSFER_STATES.RECOVERABLE,
                     errorMessage: productMessage,
@@ -3326,12 +3386,12 @@ teleportBtn.addEventListener('click', async () => {
             }
             log(`Teleportation paused: ${productMessage}`, 'error');
             addActivity('Teleport', from, to, amount, 'error', null, {
-                recoveryId: activeBridgeContext?.id,
-                burnTxHash: activeBridgeContext?.burnTxHash || null,
+                recoveryId: transferContext.id,
+                burnTxHash: finalBridgeContext.burnTxHash || null,
                 sourceWallet,
                 destinationWallet,
                 recipient,
-                wallets: activeBridgeContext?.wallets || [],
+                wallets: finalBridgeContext.wallets || [],
                 useForwarder,
                 lifecycleState: nextState,
                 lifecycleLabel: getTransferStateLabel(nextState),
@@ -3342,23 +3402,27 @@ teleportBtn.addEventListener('click', async () => {
         sounds.play('error');
         finalEtaLabel = 'Paused';
         const productMessage = getProductErrorMessage(e);
-        const nextState = activeBridgeContext?.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
-        patchTransferRecord(activeBridgeContext?.id, {
+        const failedBridgeContext = (transferContext?.id && bridgeContextsById.get(transferContext.id))
+            || transferContext
+            || activeBridgeContext
+            || {};
+        const nextState = failedBridgeContext.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
+        patchTransferRecord(failedBridgeContext.id, {
             state: nextState,
             errorMessage: productMessage,
         });
-        recordTransferFailure(activeBridgeContext?.id, {
+        recordTransferFailure(failedBridgeContext.id, {
             stage: 'bridge.exception',
             route: `${from}->${to}`,
             state: nextState,
-            burnTxHash: activeBridgeContext?.burnTxHash || null,
+            burnTxHash: failedBridgeContext.burnTxHash || null,
             productMessage,
             error: e,
-            sourceWallet: activeBridgeContext?.sourceWallet || null,
-            destinationWallet: activeBridgeContext?.destinationWallet || null,
+            sourceWallet: failedBridgeContext.sourceWallet || null,
+            destinationWallet: failedBridgeContext.destinationWallet || null,
         });
-        if (activeBridgeContext?.burnTxHash) {
-            patchPendingRecovery(activeBridgeContext.burnTxHash, {
+        if (failedBridgeContext.burnTxHash) {
+            patchPendingRecovery(failedBridgeContext.burnTxHash, {
                 status: 'burned',
                 state: TRANSFER_STATES.RECOVERABLE,
                 errorMessage: productMessage,
@@ -3366,13 +3430,13 @@ teleportBtn.addEventListener('click', async () => {
         }
         log(`Teleportation paused: ${productMessage}`, 'error');
         addActivity('Teleport', from, to, amount, 'error', null, {
-            recoveryId: activeBridgeContext?.id,
-            burnTxHash: activeBridgeContext?.burnTxHash || null,
-            sourceWallet: activeBridgeContext?.sourceWallet || null,
-            destinationWallet: activeBridgeContext?.destinationWallet || null,
-            recipient: activeBridgeContext?.recipient || null,
-            wallets: activeBridgeContext?.wallets || [],
-            useForwarder: activeBridgeContext?.useForwarder,
+            recoveryId: failedBridgeContext.id,
+            burnTxHash: failedBridgeContext.burnTxHash || null,
+            sourceWallet: failedBridgeContext.sourceWallet || null,
+            destinationWallet: failedBridgeContext.destinationWallet || null,
+            recipient: failedBridgeContext.recipient || null,
+            wallets: failedBridgeContext.wallets || [],
+            useForwarder: failedBridgeContext.useForwarder,
             lifecycleState: nextState,
             lifecycleLabel: getTransferStateLabel(nextState),
             errorMessage: productMessage,
