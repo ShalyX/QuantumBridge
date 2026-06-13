@@ -35,7 +35,7 @@ Recovery behavior:
 
 - Every transfer is written to the backend lifecycle store.
 - If a burn succeeds but minting does not finish, the app shows a normal Resume transfer experience after reconnect or refresh.
-- Recovery cards show route, amount, burn transaction, destination, and lifecycle status.
+- Activity cards show route, amount, burn transaction, destination, lifecycle status, and Resume transfer when action is needed.
 - The backend worker polls Circle Iris and moves transfers through attestation pending, recoverable, completed, or already claimed states.
 - Failed transfer states are captured in backend events and Render logs for support bundles.
 

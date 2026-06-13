@@ -24,7 +24,6 @@
                 <button class="product-tab active" data-app-tab="demo" aria-selected="true">Home</button>
                 <button class="product-tab" data-app-tab="bridge" aria-selected="false">Bridge</button>
                 <button class="product-tab" data-app-tab="activity" aria-selected="false">Activity</button>
-                <button class="product-tab" data-app-tab="recovery" aria-selected="false">Recovery</button>
             </nav>
             <div class="header-actions">
                 <button id="theme-toggle" title="Toggle Theme">
@@ -55,6 +54,13 @@
         </header>
 
         <main class="product-shell">
+            <div id="recovery-banner" class="recovery-banner attention-banner" hidden>
+                <div>
+                    <strong>Transfer needs attention</strong>
+                    <span id="recovery-banner-text">A transfer is ready to continue after source burn.</span>
+                </div>
+                <button id="resume-all-recoveries" class="btn btn-glass btn-sm">Resume all</button>
+            </div>
             <section class="tab-panel active" data-tab-panel="demo">
                 <div class="landing-hero glass">
                     <div class="landing-copy">
@@ -63,7 +69,7 @@
                         <p>Move USDC across Arc Testnet, Solana Devnet, and Ethereum Sepolia with durable transfer state, route-aware recovery, and supported-wallet guardrails.</p>
                         <div class="landing-actions">
                             <button class="btn btn-primary" data-switch-tab="bridge">Open Bridge</button>
-                            <button class="btn btn-glass" data-switch-tab="recovery">Resume Transfer</button>
+                            <button class="btn btn-glass" data-switch-tab="activity">View Activity</button>
                         </div>
                     </div>
                     <div class="demo-orbit" aria-label="Supported demo routes">
@@ -75,7 +81,7 @@
                         <div class="route-card">
                             <span>Arc Testnet</span>
                             <strong>Solana Devnet</strong>
-                            <small>Manual destination mint</small>
+                            <small>Forwarder destination mint</small>
                         </div>
                         <div class="route-card">
                             <span>Solana Devnet</span>
@@ -91,7 +97,7 @@
                         <p>Phantom remains limited for Solana CCTP routes until its signature flow is stable.</p>
                     </article>
                     <article class="demo-card glass">
-                        <span>Recovery</span>
+                        <span>Resume</span>
                         <strong>Transfers resume after refresh</strong>
                         <p>Burns are tracked through attestation, destination mint, completion, and already-claimed states.</p>
                     </article>
@@ -270,21 +276,15 @@
                         <div class="empty-state">No recent activity detected.</div>
                     </div>
                 </div>
-            </section>
-
-            <section class="tab-panel" data-tab-panel="recovery" hidden>
-                <div class="recovery-panel glass">
-                    <div id="recovery-banner" class="recovery-banner" hidden>
-                        <div>
-                            <strong>Resume transfer available</strong>
-                            <span id="recovery-banner-text">A transfer is ready to continue after source burn.</span>
-                        </div>
-                        <button id="resume-all-recoveries" class="btn btn-glass btn-sm">Resume all</button>
-                    </div>
+                <details id="advanced-recovery" class="recovery-panel advanced-recovery glass">
+                    <summary>
+                        <span>Need help?</span>
+                        <strong>Open manual recovery</strong>
+                    </summary>
                     <div class="recovery-header">
                         <div>
-                            <h3>Resume Transfers</h3>
-                            <p>Continue a source burn through attestation and destination mint.</p>
+                            <h3>Manual Recovery</h3>
+                            <p>Paste a source burn transaction only if a transfer needs support.</p>
                         </div>
                     </div>
                     <div class="recovery-route-grid">
@@ -310,7 +310,7 @@
                         <button id="recover-burn-btn" class="btn btn-glass btn-sm">Resume</button>
                     </div>
                     <div id="pending-recoveries" class="pending-recoveries"></div>
-                </div>
+                </details>
             </section>
         </main>
 

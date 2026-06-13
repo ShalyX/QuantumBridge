@@ -67,9 +67,9 @@ Circle Forwarder is enabled by default for every supported destination: `arc`, `
 
 - Start with a clean profile or cleared app storage and connect one EVM wallet plus one Solana wallet.
 - Submit a Solana -> Arc transfer with Backpack and confirm the activity card shows route, amount, burn transaction, and lifecycle status.
-- Refresh after burn and before mint; confirm the banner says a transfer is ready to resume.
+- Refresh after burn and before mint; confirm the banner says the transfer needs attention.
 - Click `Resume all`; confirm completed or already claimed transfers leave the pending banner and show a success activity card.
-- Paste a known burn transaction into `Resume Transfers`; confirm route, attestation, and destination mint messaging stays product-facing.
+- From Activity, open `Need help?` and paste a known burn transaction; confirm route, attestation, and destination mint messaging stays product-facing.
 - Attempt Solana source transfer with Phantom; confirm the wallet modal blocks the route with Backpack/Solflare guidance before any transaction signing.
 - Confirm the live time estimate updates from route/network health probes and does not count down.
 - Confirm failed bridge and recovery attempts create `transfer.failed` or `transfer.failure_captured` events in the support bundle and produce a Render log entry.

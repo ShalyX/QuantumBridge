@@ -162,7 +162,7 @@ The Activity Portal shows a Relay-style transfer ledger with source, destination
 Recovery:
 
 ```text
-Recovery is a normal resume flow: paste a burn transaction or reconnect wallets to continue pending transfers.
+Recovery is contextual: Activity cards show Resume transfer when a burn needs attention, and manual paste-burn recovery lives behind Need help.
 ```
 
 Wallet modal:
@@ -193,7 +193,7 @@ USDC bridging with memory, powered by Circle CCTP.
 - Show the live time estimate as a route/network-health estimate, not a countdown.
 - Collapse or expand Teleportation Status to show the operational log.
 - Open Activity and point out the global transfer ledger.
-- Open Recovery and explain what happens if a burn succeeds before a destination mint fails.
+- Open Activity and explain what happens if a burn succeeds before a destination mint fails.
 - Open the wallet modal and explain Backpack/Solflare support and Phantom limits.
 
 ## Known Limits To Mention
@@ -214,4 +214,4 @@ USDC bridging with memory, powered by Circle CCTP.
 - Test one Backpack or Solflare Solana source route.
 - Test one EVM source route.
 - Confirm Activity shows the transfer in My Transfers and Global Feed.
-- Confirm Recovery can handle already claimed or pending burns with product messages.
+- Confirm Activity Resume transfer and Need help can handle already claimed or pending burns with product messages.

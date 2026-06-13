@@ -412,9 +412,11 @@ const recoveryDestinationChainSelect = document.getElementById('recovery-destina
 const recoveryBanner = document.getElementById('recovery-banner');
 const recoveryBannerText = document.getElementById('recovery-banner-text');
 const resumeAllRecoveriesBtn = document.getElementById('resume-all-recoveries');
+const advancedRecoveryDetails = document.getElementById('advanced-recovery');
 
 
 function setAppTab(tab) {
+    if (tab === 'recovery') tab = 'activity';
     productTabs.forEach(btn => {
         const active = btn.getAttribute('data-app-tab') === tab;
         btn.classList.toggle('active', active);
@@ -574,7 +576,7 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     attestationPending: 'Circle attestation is not ready yet.',
     solanaRecoveryWallet: 'Connect Solflare or Backpack to complete this route.',
     phantomSourceUnsupported: 'Phantom is currently locked for Solana CCTP routes. Connect Backpack or Solflare to complete this route.',
-    phantomTestFailed: 'Phantom could not complete this signing flow. If a burn succeeded, open Recovery and resume with any supported Solana wallet.',
+    phantomTestFailed: 'Phantom could not complete this signing flow. If a burn succeeded, open Activity and use Resume transfer with any supported Solana wallet.',
     phantomBurnSimulationFailed: 'Phantom signed, but the source burn simulation failed before submission. No USDC was burned; try again or use Backpack/Solflare for this route.',
     sourceBurnSimulationFailed: 'The source burn could not be simulated, so no burn transaction was submitted. Try again, or use a supported wallet for this route.',
     walletConnection: 'Wallet connection failed. Refresh and reconnect this wallet from the modal.',
@@ -595,11 +597,11 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     noCctpMessage: 'No CCTP burn message was found for this transaction.',
     forwarderFeeTooHigh: 'This transfer is below the current Circle Forwarder fee for this route. Increase the amount and try again.',
     solanaAtaCreation: 'Solana token account setup failed. Use Backpack or Solflare, or paste a Solana destination that already has a devnet USDC token account.',
-    solanaMintPaused: 'Solana mint could not complete. Your burn is saved; open Recovery and resume this transfer with Backpack or Solflare.',
-    solanaBlockhashExpired: 'Solana mint transaction expired before submission. Your burn is saved; open Recovery and resume this transfer to submit a fresh mint.',
+    solanaMintPaused: 'Solana mint could not complete. Your burn is saved; open Activity and use Resume transfer with Backpack or Solflare.',
+    solanaBlockhashExpired: 'Solana mint transaction expired before submission. Your burn is saved; open Activity and use Resume transfer to submit a fresh mint.',
     simulationFailed: 'The destination chain rejected this mint. Try Resume transfer again, or use a supported wallet for this route.',
     appAssetUnavailable: 'App update asset failed to load. Refresh once and retry; your transfer will remain recoverable if the burn already happened.',
-    genericRecoverable: 'Transfer paused. Resume it from the recovery panel when wallets are connected.',
+    genericRecoverable: 'Transfer paused. Open Activity and use Resume transfer when wallets are connected.',
 });
 
 const pendingTransferSyncs = new Map();
@@ -1198,6 +1200,29 @@ function getActionableRecoveries() {
         seen.add(key);
         return true;
     });
+}
+
+function findRecoveryByKey(key) {
+    const normalized = String(key || '');
+    if (!normalized) return null;
+    return getActionableRecoveries().find(item =>
+        String(item.id || '') === normalized ||
+        String(item.recoveryId || '') === normalized ||
+        String(item.burnTxHash || '') === normalized
+    ) || null;
+}
+
+function getRecoveryForActivity(item) {
+    if (!item) return null;
+    for (const key of [item.recoveryId, item.id, item.burnTxHash]) {
+        const recovery = findRecoveryByKey(key);
+        if (recovery) return recovery;
+    }
+    return null;
+}
+
+function canResumeRecoveryItem(recovery) {
+    return Boolean(recovery && recovery.status !== 'attesting' && recovery.status !== 'minting' && recovery.status !== 'minted');
 }
 
 function writePendingRecoveries(items) {
@@ -1820,7 +1845,7 @@ function renderRecoveryBanner() {
     recoveryBanner.hidden = count === 0;
     if (recoveryBannerText) {
         const noun = count === 1 ? 'transfer' : 'transfers';
-        recoveryBannerText.textContent = `${count} ${noun} ready to resume after source burn.`;
+        recoveryBannerText.textContent = `${count} ${noun} need attention after source burn.`;
     }
     if (resumeAllRecoveriesBtn) {
         const resumable = actionable.some(item => item.status !== 'attesting' && item.status !== 'minting');
@@ -3101,6 +3126,55 @@ destinationAddressInput?.addEventListener('input', () => {
 recoverySourceChainSelect?.addEventListener('change', () => syncRecoveryRouteControls(recoverySourceChainSelect));
 recoveryDestinationChainSelect?.addEventListener('change', () => syncRecoveryRouteControls(recoveryDestinationChainSelect));
 
+function openAdvancedRecovery(transfer = null) {
+    setAppTab('activity');
+    if (advancedRecoveryDetails) {
+        advancedRecoveryDetails.open = true;
+        advancedRecoveryDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (transfer) {
+        if (recoverySourceChainSelect && transfer.from) recoverySourceChainSelect.value = transfer.from;
+        if (recoveryDestinationChainSelect && transfer.to) recoveryDestinationChainSelect.value = transfer.to;
+        if (recoveryBurnTxInput && transfer.burnTxHash) recoveryBurnTxInput.value = transfer.burnTxHash;
+        syncRecoveryRouteControls();
+    }
+}
+
+async function resumeOneRecovery(transfer, stage = 'recovery.item') {
+    if (!transfer) return false;
+    try {
+        await recoverCctpMint(transfer);
+        return true;
+    } catch (e) {
+        if (isNonceAlreadyUsedError(e)) {
+            markRecoveryAlreadyMinted(transfer.id || transfer.burnTxHash, transfer.from || 'solana', transfer.to || 'arc', transfer, transfer.burnTxHash);
+            return true;
+        }
+
+        const errorText = getProductErrorMessage(e);
+        patchPendingRecovery(transfer.id || transfer.burnTxHash, {
+            status: 'burned',
+            state: TRANSFER_STATES.RECOVERABLE,
+            errorMessage: errorText,
+        });
+        recordTransferFailure(transfer.id || transfer.burnTxHash, {
+            stage,
+            route: `${transfer.from || 'unknown'}->${transfer.to || 'unknown'}`,
+            state: TRANSFER_STATES.RECOVERABLE,
+            burnTxHash: transfer.burnTxHash,
+            productMessage: errorText,
+            error: e,
+        });
+        log(`Resume transfer paused: ${errorText}`, 'error');
+        return false;
+    } finally {
+        syncRecoveryActivityCards();
+        renderActivity();
+        renderPendingRecoveries();
+        renderRecoveryBanner();
+    }
+}
+
 recoverBurnBtn?.addEventListener('click', async () => {
     const burnTxHash = recoveryBurnTxInput.value.trim();
     const source = recoverySourceChainSelect?.value || 'solana';
@@ -3193,33 +3267,9 @@ pendingRecoveriesEl?.addEventListener('click', async (event) => {
     try {
         sounds.play('warp');
         button.disabled = true;
-        await recoverCctpMint(transfer);
-    } catch (e) {
+        await resumeOneRecovery(transfer, 'recovery.advanced');
+    } catch {
         sounds.play('error');
-        if (isNonceAlreadyUsedError(e)) {
-            markRecoveryAlreadyMinted(transfer.id || transfer.burnTxHash, transfer.from || 'solana', transfer.to || 'arc', transfer, transfer.burnTxHash);
-        } else {
-            const errorText = getProductErrorMessage(e);
-            patchPendingRecovery(transfer.id, {
-                status: 'burned',
-                state: TRANSFER_STATES.RECOVERABLE,
-                errorMessage: errorText,
-            });
-            recordTransferFailure(transfer.id || transfer.burnTxHash, {
-                stage: 'recovery.item',
-                route: `${transfer.from || 'unknown'}->${transfer.to || 'unknown'}`,
-                state: TRANSFER_STATES.RECOVERABLE,
-                burnTxHash: transfer.burnTxHash,
-                productMessage: errorText,
-                error: e,
-            });
-            log(`Resume transfer paused: ${errorText}`, 'error');
-        }
-    } finally {
-        syncRecoveryActivityCards();
-        renderActivity();
-        renderPendingRecoveries();
-        renderRecoveryBanner();
     }
 });
 
@@ -3721,6 +3771,9 @@ function openTransactionDetails(item) {
     const explorerTarget = getActivityExplorerTarget(item);
     const explorerUrl = explorerTarget ? getLink(explorerTarget.chain, explorerTarget.hash) : null;
     const transactionLabel = explorerTarget ? shortHash(explorerTarget.hash) : (item.alreadyMinted ? 'Already minted' : 'Pending');
+    const recovery = getRecoveryForActivity(item);
+    const recoveryKey = recovery?.id || recovery?.burnTxHash || '';
+    const canResume = canResumeRecoveryItem(recovery);
     const detailRow = (label, value) => value ? `
         <div class="manifest-row">
             <span class="m-label">${escapeHtml(label)}</span>
@@ -3798,9 +3851,15 @@ function openTransactionDetails(item) {
             ` : ''}
         </div>
         <div class="manifest-actions">
+            ${canResume
+                ? `<button class="btn btn-primary full-width" type="button" data-resume-recovery-id="${escapeHtml(recoveryKey)}">Resume transfer</button>`
+                : ''}
             ${explorerUrl
                 ? `<a class="btn btn-primary full-width" href="${explorerUrl}" target="_blank" rel="noopener">${escapeHtml(explorerTarget.label)}</a>`
                 : `<button class="btn btn-glass full-width" disabled>${item.alreadyMinted ? 'Mint already completed' : 'No transaction hash yet'}</button>`}
+            ${item.burnTxHash
+                ? `<button class="tx-link support-link" type="button" data-open-advanced-recovery="${escapeHtml(recoveryKey || item.burnTxHash)}" data-recovery-from="${escapeHtml(from)}" data-recovery-to="${escapeHtml(to)}">Need help? Open manual recovery</button>`
+                : ''}
         </div>
     `;
     txDetailsOverlay.style.display = 'flex';
@@ -3820,6 +3879,31 @@ txDetailsOverlay?.addEventListener('click', async (event) => {
         event.preventDefault();
         event.stopPropagation();
         await copyToClipboard(copyButton.dataset.copyBurn, 'burn tx');
+        return;
+    }
+    const resumeButton = event.target.closest('[data-resume-recovery-id]');
+    if (resumeButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const transfer = findRecoveryByKey(resumeButton.dataset.resumeRecoveryId);
+        if (!transfer) return;
+        sounds.play('warp');
+        resumeButton.disabled = true;
+        await resumeOneRecovery(transfer, 'activity.details');
+        closeTransactionDetails();
+        return;
+    }
+    const advancedButton = event.target.closest('[data-open-advanced-recovery]');
+    if (advancedButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const transfer = findRecoveryByKey(advancedButton.dataset.openAdvancedRecovery) || {
+            burnTxHash: advancedButton.dataset.openAdvancedRecovery,
+            from: advancedButton.dataset.recoveryFrom || originChainSelect?.value || 'solana',
+            to: advancedButton.dataset.recoveryTo || destinationChainSelect?.value || 'arc',
+        };
+        closeTransactionDetails();
+        openAdvancedRecovery(transfer);
         return;
     }
     if (event.target === txDetailsOverlay) closeTransactionDetails();
@@ -3956,6 +4040,9 @@ function renderActivity() {
         const fillChain = fillHash ? getActivityExplorerChain({ ...item, txHash: fillHash }) : null;
         const depositChain = item.from || 'arc';
         const amount = item.amount || 'unknown';
+        const recovery = getRecoveryForActivity(item);
+        const recoveryKey = recovery?.id || recovery?.burnTxHash || '';
+        const canResume = canResumeRecoveryItem(recovery);
         return `
             <div class="activity-item activity-ledger-row" data-activity-id="${escapeHtml(item.id)}" role="button" tabindex="0" aria-label="View ${escapeHtml(item.type || 'transaction')} details">
                 <div class="activity-cell from-cell" data-label="From">
@@ -3983,6 +4070,9 @@ function renderActivity() {
                     ${item.burnTxHash
                         ? `<button class="tx-link copy-burn-btn" type="button" data-copy-burn="${escapeHtml(item.burnTxHash)}">Copy burn tx</button>`
                         : ''}
+                    ${canResume
+                        ? `<button class="tx-link resume-transfer-btn" type="button" data-resume-recovery-id="${escapeHtml(recoveryKey)}">Resume transfer</button>`
+                        : ''}
                 </div>
                 <div class="activity-cell status-cell" data-label="Status">
                     <span class="status-pill ${escapeHtml(status)}">${escapeHtml(lifecycleLabel)}</span>
@@ -4009,6 +4099,17 @@ function renderActivity() {
 }
 
 document.getElementById('activity-list')?.addEventListener('click', async (event) => {
+    const resumeButton = event.target.closest('[data-resume-recovery-id]');
+    if (resumeButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const transfer = findRecoveryByKey(resumeButton.dataset.resumeRecoveryId);
+        if (!transfer) return;
+        sounds.play('warp');
+        resumeButton.disabled = true;
+        await resumeOneRecovery(transfer, 'activity.card');
+        return;
+    }
     const copyButton = event.target.closest('[data-copy-burn]');
     if (copyButton) {
         event.preventDefault();

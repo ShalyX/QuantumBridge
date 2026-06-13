@@ -134,7 +134,7 @@ Voice:
 Write like:
 
 ```text
-Your burn is saved. Open Recovery and resume this transfer with Backpack or Solflare.
+Your burn is saved. Open Activity and use Resume transfer with Backpack or Solflare.
 ```
 
 Avoid:
@@ -156,7 +156,7 @@ Preferred terms:
 | Destination node | Destination chain |
 | Teleportation Status | Live transfer log |
 | Activity Portal | Transfer history |
-| Resume transfer | Recovery action |
+| Resume transfer | Activity card action |
 | Recovery checkpoint | Saved post-burn state |
 | Global Feed | Public transfer activity |
 
@@ -168,7 +168,7 @@ Use plain terms for risky moments:
 | Attestation pending | Circle attestation is not ready yet. |
 | Wallet unsupported | Connect Backpack or Solflare to complete this route. |
 | Forwarder fee too high | This transfer is below the current Circle Forwarder fee for this route. |
-| Destination mint interrupted | Your burn is saved. Open Recovery and resume this transfer. |
+| Destination mint interrupted | Your burn is saved. Open Activity and use Resume transfer. |
 
 ## Screenshot Guidance
 
@@ -177,7 +177,7 @@ Capture these screens for launch material:
 1. Home tab in dark mode showing the QuantumBridge hero and route cards.
 2. Bridge tab with connected wallets, route selected, and live status collapsed.
 3. Activity tab showing the ledger view with From, To, Transactions, Status, and Fill Time.
-4. Recovery tab showing a pending or already claimed transfer.
+4. Activity tab showing a transfer that needs attention and the contextual Resume transfer action.
 5. Wallet modal showing Backpack and Solflare supported, Phantom locked.
 6. Light mode home tab for contrast.
 
