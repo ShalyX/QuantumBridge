@@ -15,10 +15,10 @@ Supported routes:
 | Route | Status | Notes |
 | --- | --- | --- |
 | Solana Devnet -> Arc Testnet | Supported | Use Backpack or Solflare. Circle Forwarder completes the Arc mint. |
-| Arc Testnet -> Solana Devnet | Supported | Manual mint/resume by default. Experimental Circle Forwarder path available with `?solanaForwarder=1`. |
+| Arc Testnet -> Solana Devnet | Supported | Circle Forwarder completes the Solana mint with recipient setup when needed. |
 | Ethereum Sepolia -> Arc Testnet | Supported | Circle Forwarder route. |
 | Arc Testnet -> Ethereum Sepolia | Supported | Circle Forwarder route. |
-| Ethereum Sepolia -> Solana Devnet | Supported | Manual mint/resume by default. Experimental Circle Forwarder path available with `?solanaForwarder=1`. |
+| Ethereum Sepolia -> Solana Devnet | Supported | Circle Forwarder completes the Solana mint with recipient setup when needed. |
 | Solana Devnet -> Ethereum Sepolia | Supported | Use Backpack or Solflare. Circle Forwarder completes the EVM mint. |
 
 Wallet support:
@@ -43,7 +43,7 @@ Known limits:
 
 - This is testnet-only for v0.1.0.
 - Circle Forwarder fees are dynamic by route. Very small forwarded transfers can be below the current route fee and will be blocked before wallet signing.
-- Solana destination Forwarder is experimental and opt-in with `VITE_EXPERIMENTAL_SOLANA_FORWARDER=1` or `?solanaForwarder=1`; manual Recovery remains the fallback.
+- Circle Forwarder is enabled for every supported destination, including Solana destination routes. Recovery remains available if a burn succeeds before delivery completes.
 - Render Free runs the Iris polling worker inside the web service. Polling pauses if the service sleeps.
 - Phantom is visible but locked for Solana CCTP routes while its signing behavior is being reviewed.
 - Browser wallet availability depends on each browser extension exposing the expected provider.

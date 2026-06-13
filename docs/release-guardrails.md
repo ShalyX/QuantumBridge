@@ -56,12 +56,12 @@ Current known audit noise is moderate transitive exposure through `@solana/web3.
 | Solana Devnet -> Arc Testnet | Backpack | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
 | Solana Devnet -> Arc Testnet | Solflare | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
 | Solana Devnet -> Arc Testnet | Phantom | Rabby or Zerion | Chrome / Edge | Locked in UI pending SDK/wallet compatibility review |
-| Arc Testnet -> Solana Devnet | Rabby or Zerion | Backpack or Solflare or pasted Solana recipient | Chrome / Edge | Manual mint/resume by default; experimental Circle Forwarder with `?solanaForwarder=1` |
+| Arc Testnet -> Solana Devnet | Rabby or Zerion | Backpack, Solflare, or pasted Solana recipient | Chrome / Edge | Supported with Circle Forwarder and Solana recipient setup |
 | Ethereum Sepolia -> Arc Testnet | Rabby or Zerion | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
 | Arc Testnet -> Ethereum Sepolia | Rabby or Zerion | Rabby or Zerion | Chrome / Edge | Supported with Circle Forwarder |
-| Ethereum Sepolia -> Solana Devnet | Rabby or Zerion | Backpack or Solflare or pasted Solana recipient | Chrome / Edge | Manual mint/resume by default; experimental Circle Forwarder with `?solanaForwarder=1` |
+| Ethereum Sepolia -> Solana Devnet | Rabby or Zerion | Backpack, Solflare, or pasted Solana recipient | Chrome / Edge | Supported with Circle Forwarder and Solana recipient setup |
 
-Circle Forwarder is enabled by default when the destination is `arc` or `ethereum`. Solana destination Forwarder is an opt-in experiment via `VITE_EXPERIMENTAL_SOLANA_FORWARDER=1` or `?solanaForwarder=1`; keep manual Solana recovery enabled while validating this route.
+Circle Forwarder is enabled by default for every supported destination: `arc`, `ethereum`, and `solana`. Keep manual recovery available for any transfer where a burn succeeds before delivery completes.
 
 ## Manual Product Checks
 
@@ -74,7 +74,7 @@ Circle Forwarder is enabled by default when the destination is `arc` or `ethereu
 - Confirm the live time estimate updates from route/network health probes and does not count down.
 - Confirm failed bridge and recovery attempts create `transfer.failed` or `transfer.failure_captured` events in the support bundle and produce a Render log entry.
 - Try a tiny Solana Devnet -> Ethereum Sepolia transfer below the current Circle Forwarder fee and confirm the app blocks before wallet signing with a product message.
-- Test Arc Testnet -> Solana Devnet once with `?solanaForwarder=1`; confirm the UI says `Experimental Solana Forwarder` and the fee line mentions Solana recipient setup.
+- Test Arc Testnet -> Solana Devnet and Ethereum Sepolia -> Solana Devnet; confirm the fee line mentions Solana recipient setup and no destination wallet signing is required.
 
 ## Product Error Messages
 

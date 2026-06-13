@@ -94,7 +94,7 @@ QuantumBridge now handles this safely by:
 
 Use Backpack or Solflare for Solana CCTP source or destination routes. Both have worked successfully in QuantumBridge testing.
 
-For Solana destination routes, QuantumBridge is also testing Circle Forwarder support so the destination mint can be completed without requiring a Solana wallet signature.
+For Solana destination routes, QuantumBridge uses Circle Forwarder so the destination mint can be completed without requiring a Solana wallet signature.
 
 ## Request For Circle Dev Team
 

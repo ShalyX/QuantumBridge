@@ -80,23 +80,10 @@ const CCTP_DOMAINS = {
     arc: 26
 };
 
-const isTruthyFlag = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
-
-const SOLANA_FORWARDER_EXPERIMENT_ENABLED = (() => {
-    if (isTruthyFlag(import.meta.env.VITE_EXPERIMENTAL_SOLANA_FORWARDER)) return true;
-    if (typeof window === 'undefined') return false;
-    try {
-        const params = new URLSearchParams(window.location.search);
-        return isTruthyFlag(params.get('solanaForwarder')) || isTruthyFlag(params.get('qbSolanaForwarder'));
-    } catch {
-        return false;
-    }
-})();
-
 const FORWARDER_DESTINATIONS = new Set([
     'arc',
     'ethereum',
-    ...(SOLANA_FORWARDER_EXPERIMENT_ENABLED ? ['solana'] : []),
+    'solana',
 ]);
 
 const IRIS_API = 'https://iris-api-sandbox.circle.com';
@@ -1556,10 +1543,10 @@ function formatUsdcMinorUnits(value) {
 }
 
 function shouldIncludeRecipientSetupForForwarder(destinationChain) {
-    return destinationChain === 'solana' && SOLANA_FORWARDER_EXPERIMENT_ENABLED;
+    return destinationChain === 'solana' && FORWARDER_DESTINATIONS.has(destinationChain);
 }
 
-function isExperimentalSolanaForwarderRoute(destinationChain) {
+function isSolanaForwarderRoute(destinationChain) {
     return destinationChain === 'solana' && FORWARDER_DESTINATIONS.has(destinationChain);
 }
 
@@ -1605,16 +1592,12 @@ function syncForwardingNotice() {
 
     const title = forwardingNotice.querySelector('strong');
     const body = forwardingNotice.querySelector('p');
-    if (isExperimentalSolanaForwarderRoute(destination)) {
-        if (title) title.textContent = 'Experimental Solana Forwarder';
-        if (body) {
-            body.textContent = 'Circle Forwarder will attempt the Solana mint without destination wallet signing. Manual recovery remains available if this route needs it.';
-        }
-        return;
-    }
-
     if (title) title.textContent = 'Gasless Arrival Enabled';
-    if (body) body.textContent = 'Circle Forwarder will complete the destination mint. No destination gas required.';
+    if (body) {
+        body.textContent = isSolanaForwarderRoute(destination)
+            ? 'Circle Forwarder will complete the Solana mint with recipient setup included when needed.'
+            : 'Circle Forwarder will complete the destination mint. No destination gas required.';
+    }
 }
 
 function syncDestinationAddressUI() {
@@ -3335,8 +3318,8 @@ teleportBtn.addEventListener('click', async () => {
 
         if (useForwarder) {
             const includesRecipientSetup = shouldIncludeRecipientSetupForForwarder(to);
-            if (isExperimentalSolanaForwarderRoute(to)) {
-                log('Solana Forwarder experiment enabled. Circle will attempt the destination mint without Solana wallet signing; Recovery remains available if needed.', 'loading');
+            if (isSolanaForwarderRoute(to)) {
+                log('Circle Forwarder will complete the Solana mint without destination wallet signing. Recovery remains available if needed.', 'loading');
             }
             const feeMinor = await assertForwarderAmountCoversFee({ from, to, amount: formattedAmount });
             if (feeMinor !== null) {

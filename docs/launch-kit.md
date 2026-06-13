@@ -199,7 +199,7 @@ USDC bridging with memory, powered by Circle CCTP.
 ## Known Limits To Mention
 
 - v0.1.0 is testnet-only.
-- Solana destination routes use manual mint/recovery by default. An experimental Circle Forwarder path can be tested with `?solanaForwarder=1`.
+- Circle Forwarder is enabled for every supported destination, including Solana destination routes with recipient setup when needed.
 - Circle Forwarder fees are dynamic; very small forwarded transfers can be blocked before wallet signing if the route fee exceeds the transfer amount.
 - Phantom is locked for current Solana CCTP routes pending SDK/wallet compatibility review.
 - Render Free can sleep, so the worker may pause until the service wakes.
