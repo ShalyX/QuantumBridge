@@ -61,7 +61,7 @@ Supported Solana wallets for CCTP routes:
 - Backpack
 - Solflare
 
-Phantom is currently marked limited while its Solana CCTP signature flow remains unstable.
+Phantom is currently visible but locked while its Solana CCTP signature flow remains unstable.
 
 This is still testnet, but it finally feels like the product I imagined:
 not just bridging, but teleporting value across networks.
@@ -129,7 +129,7 @@ Transfers now show:
 
 Backpack: supported
 Solflare: supported
-Phantom: limited for current Solana CCTP routes
+Phantom: locked for current Solana CCTP routes pending SDK/wallet compatibility review
 
 7/ This is still testnet, but it is no longer just a demo.
 
@@ -168,7 +168,7 @@ Recovery is a normal resume flow: paste a burn transaction or reconnect wallets 
 Wallet modal:
 
 ```text
-Wallet guardrails are explicit: Backpack and Solflare are supported for Solana CCTP routes; Phantom is currently limited.
+Wallet guardrails are explicit: Backpack and Solflare are supported for Solana CCTP routes; Phantom is currently locked.
 ```
 
 ## Bio Lines
@@ -201,7 +201,7 @@ USDC bridging with memory, powered by Circle CCTP.
 - v0.1.0 is testnet-only.
 - Solana destination routes use manual mint/recovery by default. An experimental Circle Forwarder path can be tested with `?solanaForwarder=1`.
 - Circle Forwarder fees are dynamic; very small forwarded transfers can be blocked before wallet signing if the route fee exceeds the transfer amount.
-- Phantom is marked limited for current Solana CCTP routes.
+- Phantom is locked for current Solana CCTP routes pending SDK/wallet compatibility review.
 - Render Free can sleep, so the worker may pause until the service wakes.
 
 ## Launch Checklist

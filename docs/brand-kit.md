@@ -178,7 +178,7 @@ Capture these screens for launch material:
 2. Bridge tab with connected wallets, route selected, and live status collapsed.
 3. Activity tab showing the ledger view with From, To, Transactions, Status, and Fill Time.
 4. Recovery tab showing a pending or already claimed transfer.
-5. Wallet modal showing Backpack and Solflare supported, Phantom limited.
+5. Wallet modal showing Backpack and Solflare supported, Phantom locked.
 6. Light mode home tab for contrast.
 
 Use dark mode as the default launch visual. Use light mode as a secondary product-polish image.

@@ -586,7 +586,7 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     alreadyClaimed: 'This burn was already claimed.',
     attestationPending: 'Circle attestation is not ready yet.',
     solanaRecoveryWallet: 'Connect Solflare or Backpack to complete this route.',
-    phantomSourceUnsupported: 'Phantom is limited for this CCTP route. Connect Backpack or Solflare to complete it.',
+    phantomSourceUnsupported: 'Phantom is currently locked for Solana CCTP routes. Connect Backpack or Solflare to complete this route.',
     phantomTestFailed: 'Phantom could not complete this signing flow. If a burn succeeded, open Recovery and resume with any supported Solana wallet.',
     phantomBurnSimulationFailed: 'Phantom signed, but the source burn simulation failed before submission. No USDC was burned; try again or use Backpack/Solflare for this route.',
     sourceBurnSimulationFailed: 'The source burn could not be simulated, so no burn transaction was submitted. Try again, or use a supported wallet for this route.',
@@ -2089,6 +2089,9 @@ async function submitSolanaMint(sourceChain, message, attestation, eventNonce, d
     if (!solanaAdapter || !solanaAccount) {
         throw new Error(PRODUCT_ERROR_MESSAGES.solanaRecoveryWallet);
     }
+    if (solanaWalletType === 'phantom') {
+        throw new Error(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported);
+    }
 
     const sourceChainDefinition = CIRCLE_CHAIN_DEFINITIONS[sourceChain];
     const solanaChainDefinition = CIRCLE_CHAIN_DEFINITIONS.solana;
@@ -2335,7 +2338,7 @@ const SOLANA_WALLET_CATALOG = Object.freeze([
     {
         walletType: 'phantom',
         name: 'Phantom',
-        supportLabel: 'Limited for CCTP routes',
+        supportLabel: 'Locked for CCTP routes',
         supportClass: 'limited',
         optionClass: 'limited',
     },
@@ -2595,10 +2598,15 @@ function renderSolanaWallets() {
     list.querySelectorAll('.wallet-option[data-wallet]').forEach(opt => {
         opt.addEventListener('click', async () => {
             const walletType = opt.getAttribute('data-wallet');
+            if (walletType === 'phantom') {
+                sounds.play('error');
+                alert(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported);
+                return;
+            }
             const provider = getSolanaWalletProvider(walletType);
             if (!provider) {
                 sounds.play('error');
-                alert(`${walletType} wallet not detected. Backpack and Solflare are supported for Solana routes; Phantom is limited for this route.`);
+                alert(`${walletType} wallet not detected. Backpack and Solflare are supported for Solana routes; Phantom is locked for CCTP routes.`);
                 return;
             }
             closeWalletModal();
@@ -2887,11 +2895,20 @@ function getSolanaWalletProvider(walletType) {
 
 async function connectSolanaWallet(walletType, options = {}) {
     const { silent = false } = options;
+    if (walletType === 'phantom') {
+        forgetWalletSessionPart('solana');
+        if (!silent) {
+            alert(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported);
+        } else {
+            console.warn('[QuantumBridge] Phantom restore skipped because Phantom is locked for Solana CCTP routes.');
+        }
+        return false;
+    }
     const provider = getSolanaWalletProvider(walletType);
     
     if (!provider) {
         if (!silent) {
-            alert(`${walletType} wallet not detected. Backpack and Solflare are supported for Solana routes; Phantom is limited for this route.`);
+            alert(`${walletType} wallet not detected. Backpack and Solflare are supported for Solana routes; Phantom is locked for CCTP routes.`);
         }
         return false;
     }
@@ -3026,9 +3043,6 @@ async function connectSolanaWallet(walletType, options = {}) {
         }
         rememberSolanaWallet(walletType, solanaAccount);
         log(`${silent ? 'Solana Fleet Restored' : 'Solana Fleet Connected'}: ${solanaAccount}`, 'success');
-        if (walletType === 'phantom') {
-            log('Phantom test path enabled for this session. If signing fails, the burn will still be recoverable.', 'loading');
-        }
         checkReady(); updateBalances();
         syncServerTransfersForConnectedWallets();
         return true;
@@ -3260,6 +3274,13 @@ teleportBtn.addEventListener('click', async () => {
     const amount = amountInput.value;
     let finalEtaLabel = null;
     let transferContext = null;
+
+    if (solanaWalletType === 'phantom' && (from === 'solana' || to === 'solana')) {
+        sounds.play('error');
+        log(PRODUCT_ERROR_MESSAGES.phantomSourceUnsupported, 'error');
+        checkReady();
+        return;
+    }
     
     try {
         sounds.play('warp');
@@ -3497,6 +3518,7 @@ function checkReady() {
     const useForwarder = FORWARDER_DESTINATIONS.has(to);
     const needsDestinationSolanaSigner = to === 'solana' && !useForwarder;
     const destinationSignerReady = !needsDestinationSolanaSigner || Boolean(solanaAdapter && solanaAccount);
+    const phantomRouteLocked = solanaWalletType === 'phantom' && (from === 'solana' || to === 'solana');
     let destinationReady = false;
     let destinationValid = syncDestinationAddressUI();
     try {
@@ -3504,9 +3526,11 @@ function checkReady() {
     } catch {
         destinationReady = false;
     }
-    teleportBtn.disabled = !sourceLinked || !destinationReady || !destinationValid || !destinationSignerReady || amount <= 0 || from === to;
+    teleportBtn.disabled = !sourceLinked || !destinationReady || !destinationValid || !destinationSignerReady || phantomRouteLocked || amount <= 0 || from === to;
     const btnText = teleportBtn.querySelector('.btn-text');
-    if (!sourceLinked) {
+    if (phantomRouteLocked) {
+        btnText.innerText = "Use Backpack or Solflare";
+    } else if (!sourceLinked) {
         btnText.innerText = `Connect ${from === 'solana' ? 'Solana' : 'EVM'} source`;
     } else if (!destinationReady) {
         btnText.innerText = "Add destination wallet";
