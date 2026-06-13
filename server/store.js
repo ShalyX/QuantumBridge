@@ -185,7 +185,7 @@ function getTransferListSortTime(transfer) {
             metadata.finishedAt,
             metadata.claimedAt,
             metadata.forwarderConfirmedAt,
-            transfer.mintTxHash ? transfer.updatedAt : null,
+            transfer.updatedAt,
             transfer.createdAt,
         ]
         : [transfer.updatedAt, transfer.createdAt];

@@ -970,6 +970,11 @@ function transferToActivity(transfer, { type = 'Teleport' } = {}) {
     if (!transfer) return null;
     const lifecycleState = transfer.state || (transfer.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : TRANSFER_STATES.CREATED);
     const id = transfer.id || transfer.recoveryId || transfer.burnTxHash || transfer.mintTxHash;
+    const completedAt = transfer.metadata?.completedAt ||
+        transfer.metadata?.finishedAt ||
+        transfer.metadata?.claimedAt ||
+        transfer.metadata?.forwarderConfirmedAt ||
+        (isTerminalActivityState(lifecycleState) ? transfer.updatedAt || transfer.createdAt || null : null);
     return {
         id: id || `${transfer.from || 'unknown'}-${transfer.to || 'unknown'}-${transfer.updatedAt || transfer.createdAt || nowIso()}`,
         recoveryId: transfer.recoveryId || transfer.id || transfer.burnTxHash || null,
@@ -994,7 +999,7 @@ function transferToActivity(transfer, { type = 'Teleport' } = {}) {
         useForwarder: Boolean(transfer.useForwarder),
         lastCheckedAt: transfer.lastCheckedAt || null,
         metadata: transfer.metadata || {},
-        completedAt: transfer.metadata?.completedAt || transfer.metadata?.finishedAt || transfer.metadata?.claimedAt || null,
+        completedAt,
     };
 }
 
@@ -1027,7 +1032,11 @@ function mergeBackendTransfersIntoLocal(transfers) {
                 lifecycleLabel: getTransferStateLabel(transfer.state),
                 errorMessage: transfer.errorMessage || null,
                 metadata: transfer.metadata || {},
-                completedAt: transfer.metadata?.completedAt || transfer.metadata?.finishedAt || transfer.metadata?.claimedAt || null,
+                completedAt: transfer.metadata?.completedAt ||
+                    transfer.metadata?.finishedAt ||
+                    transfer.metadata?.claimedAt ||
+                    transfer.metadata?.forwarderConfirmedAt ||
+                    (isTerminalActivityState(transfer.state) ? transfer.updatedAt || transfer.createdAt || null : null),
                 timestamp: transfer.createdAt || transfer.updatedAt || nowIso(),
                 updatedAt: transfer.updatedAt || transfer.createdAt || nowIso(),
             });
@@ -3635,6 +3644,7 @@ function isTerminalActivityState(state) {
 
 function getActivityCompletionTime(item = {}) {
     const metadata = item.metadata || {};
+    const lifecycleState = item.lifecycleState || item.state || (item.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : null);
     const candidates = [
         item.completedAt,
         item.finishedAt,
@@ -3645,6 +3655,7 @@ function getActivityCompletionTime(item = {}) {
         metadata.forwarderConfirmedAt,
     ];
     if (item.mintTxHash || item.txHash) candidates.push(item.updatedAt);
+    if (isTerminalActivityState(lifecycleState)) candidates.push(item.updatedAt, item.createdAt);
     const value = candidates.find(candidate => {
         const time = new Date(candidate || '').getTime();
         return Number.isFinite(time);
