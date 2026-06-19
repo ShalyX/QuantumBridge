@@ -234,6 +234,11 @@ function extractTransferPatchFromEvents(transfer, events = []) {
         },
     };
     let hasContext = Boolean(patch.from || patch.to || patch.wallets.length);
+    const missingContext = !transfer.from ||
+        !transfer.to ||
+        !transfer.sourceWallet ||
+        !(Array.isArray(transfer.wallets) && transfer.wallets.length);
+    let hasLifecycleEvent = false;
 
     for (const event of events) {
         const payload = safeParse(event.payload_json, {});
@@ -259,17 +264,57 @@ function extractTransferPatchFromEvents(transfer, events = []) {
         const eventType = String(event.event_type || '').toLowerCase();
         const values = payload.values || {};
         if (values.txHash && eventType.includes('burn')) {
+            hasLifecycleEvent = true;
             patch.burnTxHash = patch.burnTxHash || values.txHash;
             patch.state = patch.state || 'burn_submitted';
         }
         if (values.txHash && eventType.includes('mint')) {
+            hasLifecycleEvent = true;
             patch.mintTxHash = values.txHash;
             patch.state = 'completed';
             patch.errorMessage = null;
         }
+
+        const state = String(values.state || payload.state || '').toLowerCase();
+        const isErrorEvent = eventType.includes('transfer.failed') ||
+            eventType.includes('.error') ||
+            state === 'error' ||
+            state === 'failed';
+        if (isErrorEvent) {
+            hasLifecycleEvent = true;
+            const eventBurnHash = cleanString(
+                patch.burnTxHash ||
+                context.burnTxHash ||
+                payload.burnTxHash ||
+                values.burnTxHash ||
+                values.txHash,
+            );
+            const eventError = values.error || payload.error || {};
+            const eventErrorMessage = cleanString(
+                eventError.productMessage ||
+                payload.productMessage ||
+                values.errorMessage ||
+                payload.errorMessage ||
+                eventError.message ||
+                payload.message ||
+                transfer.errorMessage,
+            );
+
+            if (eventBurnHash) {
+                patch.burnTxHash = patch.burnTxHash || eventBurnHash;
+                if (!patch.mintTxHash) patch.state = 'recoverable';
+            } else if (!patch.mintTxHash) {
+                patch.state = 'failed';
+            }
+            if (!patch.mintTxHash) {
+                patch.errorMessage = eventErrorMessage || patch.errorMessage || null;
+            }
+            hasContext = true;
+        }
     }
 
     if (!hasContext && !patch.burnTxHash && !patch.mintTxHash) return null;
+    if (transfer.state === 'created' && !hasLifecycleEvent && !missingContext) return null;
     return patch;
 }
 
@@ -445,8 +490,12 @@ class SqliteStore {
                 OR to_chain IS NULL
                 OR source_wallet IS NULL
                 OR json_array_length(COALESCE(wallets_json, '[]')) = 0
+                OR state = 'created'
             )
-              AND COALESCE(json_extract(metadata_json, '$.backfilledFromEvents'), 0) != 1
+              AND (
+                state = 'created'
+                OR COALESCE(json_extract(metadata_json, '$.backfilledFromEvents'), 0) != 1
+              )
             ORDER BY created_at DESC
             LIMIT 100
         `).all();
@@ -668,8 +717,12 @@ class PostgresStore {
                      WHEN jsonb_typeof(wallets_json) = 'array' THEN jsonb_array_length(wallets_json) = 0
                      ELSE TRUE
                    END
+                OR state = 'created'
             )
-              AND COALESCE(metadata_json->>'backfilledFromEvents', 'false') <> 'true'
+              AND (
+                state = 'created'
+                OR COALESCE(metadata_json->>'backfilledFromEvents', 'false') <> 'true'
+              )
             ORDER BY created_at DESC
             LIMIT 100
         `);

@@ -579,6 +579,7 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     phantomTestFailed: 'Phantom could not complete this signing flow. If a burn succeeded, open Activity and use Resume transfer with any supported Solana wallet.',
     phantomBurnSimulationFailed: 'Phantom signed, but the source burn simulation failed before submission. No USDC was burned; try again or use Backpack/Solflare for this route.',
     sourceBurnSimulationFailed: 'The source burn could not be simulated, so no burn transaction was submitted. Try again, or use a supported wallet for this route.',
+    sourceBurnExpired: 'Solana could not submit the source burn before the transaction expired. No burn hash was produced, so no USDC was burned. Try again with Backpack or Solflare.',
     walletConnection: 'Wallet connection failed. Refresh and reconnect this wallet from the modal.',
     walletUnauthorized: 'Wallet authorization expired. Reconnect your EVM wallet, switch to the requested account and network, then approve the transaction.',
     walletPluginClosed: 'Wallet connection closed. Reopen or unlock the wallet, then try again.',
@@ -1544,6 +1545,9 @@ function isPhantomBridgeContext(context = {}) {
 
 function getBridgeStepProductMessage(methodName, error, details = {}) {
     const hasSubmittedBurn = Boolean(details.txHash || details.context?.burnTxHash);
+    if (isBridgeBurnStage(methodName) && isSolanaBlockhashExpiredError(error) && !hasSubmittedBurn) {
+        return PRODUCT_ERROR_MESSAGES.sourceBurnExpired;
+    }
     if (isBridgeBurnStage(methodName) && isBridgeSimulationFailure(error) && !hasSubmittedBurn) {
         return isPhantomBridgeContext(details.context)
             ? PRODUCT_ERROR_MESSAGES.phantomBurnSimulationFailed
