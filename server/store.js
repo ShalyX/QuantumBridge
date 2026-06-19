@@ -94,6 +94,7 @@ function normalizeTransfer(input = {}, existing = null) {
         ...(input.metadata || {}),
     };
     const attestation = input.attestation || input.attestationData || safeParse(existing?.attestation_json, null);
+    const preserveUpdatedAt = Boolean(input.preserveUpdatedAt || input.preserve_updated_at);
 
     return {
         id,
@@ -116,7 +117,7 @@ function normalizeTransfer(input = {}, existing = null) {
         attestation_json: attestation ? JSON.stringify(attestation) : existing?.attestation_json || null,
         metadata_json: JSON.stringify(metadata),
         created_at: existing?.created_at || input.createdAt || input.created_at || timestamp,
-        updated_at: timestamp,
+        updated_at: preserveUpdatedAt ? (existing?.updated_at || input.updatedAt || input.updated_at || timestamp) : timestamp,
         last_checked_at: input.lastCheckedAt || input.last_checked_at || existing?.last_checked_at || null,
     };
 }
@@ -406,6 +407,7 @@ class SqliteStore {
             WHERE burn_tx_hash IS NOT NULL
               AND (
                 state IN ('burn_submitted', 'attestation_pending', 'recoverable')
+                OR (use_forwarder = 1 AND mint_tx_hash IS NULL AND state NOT IN ('failed', 'already_claimed'))
                 OR (already_minted = 1 AND state <> 'already_claimed')
               )
             ORDER BY updated_at ASC
@@ -624,6 +626,7 @@ class PostgresStore {
             WHERE burn_tx_hash IS NOT NULL
               AND (
                 state IN ('burn_submitted', 'attestation_pending', 'recoverable')
+                OR (use_forwarder = TRUE AND mint_tx_hash IS NULL AND state NOT IN ('failed', 'already_claimed'))
                 OR (already_minted = TRUE AND state <> 'already_claimed')
               )
             ORDER BY updated_at ASC

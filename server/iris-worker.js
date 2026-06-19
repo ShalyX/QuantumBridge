@@ -24,8 +24,7 @@ async function fetchCctpAttestation(sourceDomain, burnTxHash) {
 }
 
 function isForwarderConfirmed(message) {
-    const forwardState = String(message?.forwardState || '').toUpperCase();
-    return Boolean(message?.forwardTxHash) || forwardState === 'CONFIRMED';
+    return Boolean(message?.forwardTxHash);
 }
 
 async function reconcileTransfer(store, transfer) {
@@ -56,6 +55,7 @@ async function reconcileTransfer(store, transfer) {
                 state: 'attestation_pending',
                 errorMessage: null,
                 lastCheckedAt: checkedAt,
+                preserveUpdatedAt: transfer.state === 'attestation_pending',
                 metadata: {
                     ...(transfer.metadata || {}),
                     workerStatus: attestation.status,
@@ -89,6 +89,7 @@ async function reconcileTransfer(store, transfer) {
                 errorMessage: null,
                 lastCheckedAt: checkedAt,
                 attestation: message,
+                preserveUpdatedAt: transfer.state === 'attestation_pending',
                 metadata: {
                     ...(transfer.metadata || {}),
                     workerStatus: 'forwarder_pending',

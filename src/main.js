@@ -781,6 +781,13 @@ function getTransferStateLabel(state) {
     return TRANSFER_STATE_LABELS[state] || TRANSFER_STATE_LABELS[TRANSFER_STATES.RECOVERABLE];
 }
 
+function getTransferActivityLabel(record, state = record?.state) {
+    if (record?.useForwarder && !record?.mintTxHash && (state === TRANSFER_STATES.ATTESTATION_PENDING || state === TRANSFER_STATES.MINT_SUBMITTED)) {
+        return 'Forwarder finalizing mint';
+    }
+    return getTransferStateLabel(state);
+}
+
 function getTransferStatusBucket(state) {
     if (state === TRANSFER_STATES.COMPLETED || state === TRANSFER_STATES.ALREADY_CLAIMED) return 'success';
     if (state === TRANSFER_STATES.FAILED) return 'error';
@@ -994,7 +1001,7 @@ function transferToActivity(transfer, { type = 'Teleport' } = {}) {
         wallets: Array.isArray(transfer.wallets) ? transfer.wallets : [],
         alreadyMinted: Boolean(transfer.alreadyMinted),
         lifecycleState,
-        lifecycleLabel: getTransferStateLabel(lifecycleState),
+        lifecycleLabel: getTransferActivityLabel(transfer, lifecycleState),
         errorMessage: transfer.errorMessage || null,
         useForwarder: Boolean(transfer.useForwarder),
         lastCheckedAt: transfer.lastCheckedAt || null,
@@ -1029,7 +1036,7 @@ function mergeBackendTransfersIntoLocal(transfers) {
                 alreadyMinted: Boolean(transfer.alreadyMinted),
                 useForwarder: Boolean(transfer.useForwarder),
                 lifecycleState: transfer.state,
-                lifecycleLabel: getTransferStateLabel(transfer.state),
+                lifecycleLabel: getTransferActivityLabel(transfer, transfer.state),
                 errorMessage: transfer.errorMessage || null,
                 metadata: transfer.metadata || {},
                 completedAt: transfer.metadata?.completedAt ||
@@ -1823,7 +1830,7 @@ function renderPendingRecoveries() {
         const disabled = item.status === 'attesting' || item.status === 'minting';
         const label = disabled ? 'Working...' : 'Resume transfer';
         const lifecycleState = stateFromRecoveryStatus(item);
-        const lifecycleLabel = getTransferStateLabel(lifecycleState);
+        const lifecycleLabel = getTransferActivityLabel(item, lifecycleState);
         const markLabel = isNonceAlreadyUsedError(item.errorMessage) ? 'Mark complete' : 'Already claimed?';
         const message = item.errorMessage ? getProductErrorMessage(item.errorMessage) : '';
         return `
@@ -1849,7 +1856,7 @@ function renderPendingRecoveries() {
 
 function renderRecoveryBanner() {
     if (!recoveryBanner) return;
-    const actionable = getActionableRecoveries();
+    const actionable = getActionableRecoveries().filter(canResumeRecoveryItem);
     const count = actionable.length;
     recoveryBanner.hidden = count === 0;
     if (recoveryBannerText) {
@@ -1968,8 +1975,7 @@ function getTransferSnapshot(transferId) {
 }
 
 function isForwarderConfirmedMessage(message) {
-    const forwardState = String(message?.forwardState || '').toUpperCase();
-    return Boolean(message?.forwardTxHash) || forwardState === 'CONFIRMED';
+    return Boolean(message?.forwardTxHash);
 }
 
 async function waitForForwarderCompletion(transferId, { timeoutMs = 8 * 60 * 1000, intervalMs = 2500 } = {}) {
@@ -3413,24 +3419,34 @@ teleportBtn.addEventListener('click', async () => {
         const finalBridgeContext = bridgeContextsById.get(transferContext.id) || transferContext;
 
         if (result.state === 'success') {
-            sounds.play('success');
-            finalEtaLabel = 'Arrived';
-            successOverlay.style.display = 'flex';
-            syncBodyScrollLock();
+            const destinationTxHash = result.transactionHash || null;
+            const isForwarderHandoffPending = useForwarder && !destinationTxHash;
+            const nextState = isForwarderHandoffPending ? TRANSFER_STATES.ATTESTATION_PENDING : TRANSFER_STATES.COMPLETED;
+            const nextStatus = getTransferStatusBucket(nextState);
+            const nextLabel = isForwarderHandoffPending ? 'Forwarder finalizing mint' : getTransferStateLabel(nextState);
+            if (isForwarderHandoffPending) {
+                finalEtaLabel = 'Finalizing';
+                log('Burn confirmed. Circle Forwarder is finalizing the destination mint; Activity will update with the fill transaction when it lands.', 'loading');
+            } else {
+                sounds.play('success');
+                finalEtaLabel = 'Arrived';
+                successOverlay.style.display = 'flex';
+                syncBodyScrollLock();
+            }
             if (finalBridgeContext.burnTxHash) {
                 patchPendingRecovery(finalBridgeContext.burnTxHash, {
-                    status: 'minted',
-                    state: TRANSFER_STATES.COMPLETED,
-                    mintTxHash: result.transactionHash || null,
+                    status: isForwarderHandoffPending ? 'minting' : 'minted',
+                    state: nextState,
+                    mintTxHash: destinationTxHash,
                     errorMessage: null,
                 });
             }
             patchTransferRecord(transferContext.id, {
-                state: TRANSFER_STATES.COMPLETED,
-                mintTxHash: result.transactionHash || null,
+                state: nextState,
+                mintTxHash: destinationTxHash,
                 errorMessage: null,
             });
-            addActivity('Teleport', from, to, amount, 'success', result.transactionHash, {
+            addActivity('Teleport', from, to, amount, nextStatus, destinationTxHash, {
                 recoveryId: transferContext.id,
                 burnTxHash: finalBridgeContext.burnTxHash || null,
                 sourceWallet,
@@ -3438,8 +3454,8 @@ teleportBtn.addEventListener('click', async () => {
                 recipient,
                 wallets: finalBridgeContext.wallets || [],
                 useForwarder,
-                lifecycleState: TRANSFER_STATES.COMPLETED,
-                lifecycleLabel: getTransferStateLabel(TRANSFER_STATES.COMPLETED),
+                lifecycleState: nextState,
+                lifecycleLabel: nextLabel,
             });
         } else {
             const failedStep = result.steps?.find(s => s.state === 'error');
@@ -3929,7 +3945,7 @@ function syncRecoveryActivityCards() {
     for (const recovery of readPendingRecoveries()) {
         if (!recovery.burnTxHash) continue;
         const lifecycleState = stateFromRecoveryStatus(recovery);
-        const lifecycleLabel = getTransferStateLabel(lifecycleState);
+        const lifecycleLabel = getTransferActivityLabel(recovery, lifecycleState);
         const existingIndex = activityHistory.findIndex(item =>
             item.recoveryId === recovery.id || item.burnTxHash === recovery.burnTxHash
         );
