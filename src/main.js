@@ -781,20 +781,31 @@ function getTransferStateLabel(state) {
     return TRANSFER_STATE_LABELS[state] || TRANSFER_STATE_LABELS[TRANSFER_STATES.RECOVERABLE];
 }
 
+function isForwarderAwaitingFill(record, state = record?.state) {
+    if (!record?.useForwarder || record?.mintTxHash || record?.txHash) return false;
+    return [
+        TRANSFER_STATES.ATTESTATION_PENDING,
+        TRANSFER_STATES.MINT_SUBMITTED,
+        TRANSFER_STATES.COMPLETED,
+    ].includes(state);
+}
+
 function getTransferActivityLabel(record, state = record?.state) {
-    if (record?.useForwarder && !record?.mintTxHash && (state === TRANSFER_STATES.ATTESTATION_PENDING || state === TRANSFER_STATES.MINT_SUBMITTED)) {
+    if (isForwarderAwaitingFill(record, state)) {
         return 'Forwarder finalizing mint';
     }
     return getTransferStateLabel(state);
 }
 
-function getTransferStatusBucket(state) {
+function getTransferStatusBucket(state, record = null) {
+    if (isForwarderAwaitingFill(record, state)) return 'pending';
     if (state === TRANSFER_STATES.COMPLETED || state === TRANSFER_STATES.ALREADY_CLAIMED) return 'success';
     if (state === TRANSFER_STATES.FAILED) return 'error';
     return 'pending';
 }
 
-function statusFromTransferState(state) {
+function statusFromTransferState(state, record = null) {
+    if (isForwarderAwaitingFill(record, state)) return 'minting';
     if (state === TRANSFER_STATES.COMPLETED || state === TRANSFER_STATES.ALREADY_CLAIMED) return 'minted';
     if (state === TRANSFER_STATES.ATTESTATION_PENDING) return 'attesting';
     if (state === TRANSFER_STATES.MINT_SUBMITTED) return 'minting';
@@ -981,7 +992,7 @@ function transferToActivity(transfer, { type = 'Teleport' } = {}) {
         transfer.metadata?.finishedAt ||
         transfer.metadata?.claimedAt ||
         transfer.metadata?.forwarderConfirmedAt ||
-        (isTerminalActivityState(lifecycleState) ? transfer.updatedAt || transfer.createdAt || null : null);
+        (isTerminalActivityState(lifecycleState, transfer) ? transfer.updatedAt || transfer.createdAt || null : null);
     return {
         id: id || `${transfer.from || 'unknown'}-${transfer.to || 'unknown'}-${transfer.updatedAt || transfer.createdAt || nowIso()}`,
         recoveryId: transfer.recoveryId || transfer.id || transfer.burnTxHash || null,
@@ -991,7 +1002,7 @@ function transferToActivity(transfer, { type = 'Teleport' } = {}) {
         from: transfer.from,
         to: transfer.to,
         amount: transfer.amount || 'unknown',
-        status: getTransferStatusBucket(lifecycleState),
+        status: getTransferStatusBucket(lifecycleState, transfer),
         txHash: transfer.mintTxHash || null,
         mintTxHash: transfer.mintTxHash || null,
         burnTxHash: transfer.burnTxHash || null,
@@ -1019,13 +1030,13 @@ function mergeBackendTransfersIntoLocal(transfers) {
             recoveryId: transfer.recoveryId || transfer.id,
             from: transfer.from,
             to: transfer.to,
-            status: statusFromTransferState(transfer.state),
+            status: statusFromTransferState(transfer.state, transfer),
             errorMessage: transfer.errorMessage || null,
             alreadyMinted: transfer.alreadyMinted,
         };
         upsertTransferRecord(localTransfer, { sync: false });
         if (transfer.from && transfer.to) {
-            addActivity('Teleport', transfer.from, transfer.to, transfer.amount || 'unknown', getTransferStatusBucket(transfer.state), transfer.mintTxHash || null, {
+            addActivity('Teleport', transfer.from, transfer.to, transfer.amount || 'unknown', getTransferStatusBucket(transfer.state, transfer), transfer.mintTxHash || null, {
                 id: transfer.id || transfer.recoveryId || transfer.burnTxHash,
                 recoveryId: transfer.recoveryId || transfer.id,
                 burnTxHash: transfer.burnTxHash || null,
@@ -1043,7 +1054,7 @@ function mergeBackendTransfersIntoLocal(transfers) {
                     transfer.metadata?.finishedAt ||
                     transfer.metadata?.claimedAt ||
                     transfer.metadata?.forwarderConfirmedAt ||
-                    (isTerminalActivityState(transfer.state) ? transfer.updatedAt || transfer.createdAt || null : null),
+                    (isTerminalActivityState(transfer.state, transfer) ? transfer.updatedAt || transfer.createdAt || null : null),
                 timestamp: transfer.createdAt || transfer.updatedAt || nowIso(),
                 updatedAt: transfer.updatedAt || transfer.createdAt || nowIso(),
             });
@@ -1837,7 +1848,7 @@ function renderPendingRecoveries() {
             <div class="recovery-item">
                 <div class="recovery-item-main">
                     <strong>${escapeHtml(route)}</strong>
-                    <span>${escapeHtml(item.amount || '?')} USDC • <span class="lifecycle-chip ${escapeHtml(getTransferStatusBucket(lifecycleState))}">${escapeHtml(lifecycleLabel)}</span></span>
+                    <span>${escapeHtml(item.amount || '?')} USDC • <span class="lifecycle-chip ${escapeHtml(getTransferStatusBucket(lifecycleState, item))}">${escapeHtml(lifecycleLabel)}</span></span>
                     <span>Burn ${escapeHtml(shortHash(item.burnTxHash))} • Destination ${escapeHtml(CHAIN_LABELS[item.to] || item.to || 'unknown')}</span>
                     ${message ? `<small>${escapeHtml(message)}</small>` : ''}
                 </div>
@@ -3422,7 +3433,7 @@ teleportBtn.addEventListener('click', async () => {
             const destinationTxHash = result.transactionHash || null;
             const isForwarderHandoffPending = useForwarder && !destinationTxHash;
             const nextState = isForwarderHandoffPending ? TRANSFER_STATES.ATTESTATION_PENDING : TRANSFER_STATES.COMPLETED;
-            const nextStatus = getTransferStatusBucket(nextState);
+            const nextStatus = getTransferStatusBucket(nextState, { useForwarder, mintTxHash: destinationTxHash });
             const nextLabel = isForwarderHandoffPending ? 'Forwarder finalizing mint' : getTransferStateLabel(nextState);
             if (isForwarderHandoffPending) {
                 finalEtaLabel = 'Finalizing';
@@ -3654,7 +3665,8 @@ function formatDuration(ms) {
     return `${minutes}m ${seconds}s`;
 }
 
-function isTerminalActivityState(state) {
+function isTerminalActivityState(state, item = null) {
+    if (isForwarderAwaitingFill(item, state)) return false;
     return state === TRANSFER_STATES.COMPLETED || state === TRANSFER_STATES.ALREADY_CLAIMED;
 }
 
@@ -3671,7 +3683,7 @@ function getActivityCompletionTime(item = {}) {
         metadata.forwarderConfirmedAt,
     ];
     if (item.mintTxHash || item.txHash) candidates.push(item.updatedAt);
-    if (isTerminalActivityState(lifecycleState)) candidates.push(item.updatedAt, item.createdAt);
+    if (isTerminalActivityState(lifecycleState, item)) candidates.push(item.updatedAt, item.createdAt);
     const value = candidates.find(candidate => {
         const time = new Date(candidate || '').getTime();
         return Number.isFinite(time);
@@ -3681,7 +3693,7 @@ function getActivityCompletionTime(item = {}) {
 
 function getActivitySortTime(item = {}) {
     const lifecycleState = item.lifecycleState || item.state || (item.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : null);
-    const sortTimestamp = isTerminalActivityState(lifecycleState)
+    const sortTimestamp = isTerminalActivityState(lifecycleState, item)
         ? (getActivityCompletionTime(item) || item.timestamp || item.createdAt)
         : (item.updatedAt || item.timestamp || item.createdAt);
     const time = new Date(sortTimestamp || '').getTime();
@@ -3949,7 +3961,7 @@ function syncRecoveryActivityCards() {
         const existingIndex = activityHistory.findIndex(item =>
             item.recoveryId === recovery.id || item.burnTxHash === recovery.burnTxHash
         );
-        const status = getTransferStatusBucket(lifecycleState);
+        const status = getTransferStatusBucket(lifecycleState, recovery);
         if (existingIndex === -1) {
             activityHistory.unshift({
                 id: `recovery-${recovery.id || recovery.burnTxHash}`,
