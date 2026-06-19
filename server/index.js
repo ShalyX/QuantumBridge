@@ -9,7 +9,14 @@ import { startIrisWorker } from './iris-worker.js';
 const PORT = Number(process.env.PORT || process.env.QUANTUM_API_PORT || 8787);
 const HOST = process.env.HOST || '0.0.0.0';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
-const ALLOWED_CORS_ORIGINS = CORS_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean);
+const DEPLOYED_APP_ORIGINS = [
+    'https://quantum-bridge.onrender.com',
+    'https://quantum-bridge-zeta.vercel.app',
+];
+const ALLOWED_CORS_ORIGINS = Array.from(new Set([
+    ...CORS_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean),
+    ...DEPLOYED_APP_ORIGINS,
+]));
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, '..', 'dist');
 

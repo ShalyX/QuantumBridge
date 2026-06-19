@@ -20,4 +20,4 @@ services:
       - key: IRIS_API
         value: https://iris-api-sandbox.circle.com
       - key: CORS_ORIGIN
-        value: https://quantum-bridge.onrender.com
+        value: https://quantum-bridge.onrender.com,https://quantum-bridge-zeta.vercel.app

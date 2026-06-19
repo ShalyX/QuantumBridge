@@ -87,7 +87,9 @@ const FORWARDER_DESTINATIONS = new Set([
 ]);
 
 const IRIS_API = 'https://iris-api-sandbox.circle.com';
-const SOLANA_DEVNET_RPC = 'https://api.devnet.solana.com';
+const SOLANA_DEVNET_RPC = import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
+const SOLANA_BALANCE_BACKOFF_BASE_MS = 5000;
+const SOLANA_BALANCE_BACKOFF_MAX_MS = 60000;
 const MESSAGE_TRANSMITTER_V2 = {
     arc: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275',
     ethereum: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
@@ -135,6 +137,9 @@ let balances = {
     ethereum: 0,
     solana: 0
 };
+let balanceRefreshPromise = null;
+let solanaBalanceFailureCount = 0;
+let solanaBalanceRetryAt = 0;
 const kit = new AppKit();
 let transferLedgerCache = [];
 let pendingRecoveriesCache = [];
@@ -2334,7 +2339,26 @@ async function resumeRecoveries(recoveries) {
     return recovered;
 }
 
-async function updateBalances() {
+function isTemporarySolanaRpcError(error) {
+    const text = getErrorText(error).toLowerCase();
+    return text.includes('service unavailable') ||
+        text.includes('503') ||
+        text.includes('502') ||
+        text.includes('504') ||
+        text.includes('429') ||
+        text.includes('too many requests') ||
+        text.includes('failed to fetch');
+}
+
+function updateBalances(options = {}) {
+    if (balanceRefreshPromise) return balanceRefreshPromise;
+    balanceRefreshPromise = performBalanceRefresh(options).finally(() => {
+        balanceRefreshPromise = null;
+    });
+    return balanceRefreshPromise;
+}
+
+async function performBalanceRefresh({ forceSolana = false } = {}) {
     if (evmAccount) {
         try {
             const arcClient = createPublicClient({ chain: arcTestnet, transport: http(), pollingInterval: 100 });
@@ -2362,7 +2386,7 @@ async function updateBalances() {
         }
     }
 
-    if (solanaAccount) {
+    if (solanaAccount && (forceSolana || Date.now() >= solanaBalanceRetryAt)) {
         try {
             const connection = new Connection(SOLANA_DEVNET_RPC, "confirmed");
             const mint = new PublicKey(USDC_ADDRS['solana']);
@@ -2376,12 +2400,24 @@ async function updateBalances() {
             balances.solana = bal;
             const solBal = await connection.getBalance(owner);
             balances.solana_native = solBal / 1e9;
+            solanaBalanceFailureCount = 0;
+            solanaBalanceRetryAt = 0;
             console.log(`[QuantumBridge] Balances: USDC=${bal}, SOL=${balances.solana_native}`);
             
             if (originChainSelect.value === 'solana') document.getElementById('origin-balance').innerText = balances.solana.toFixed(2);
             if (destinationChainSelect.value === 'solana') document.getElementById('dest-balance').innerText = balances.solana.toFixed(2);
         } catch (e) {
-            console.error("Solana balance fetch failed", e);
+            if (isTemporarySolanaRpcError(e)) {
+                solanaBalanceFailureCount += 1;
+                const retryDelay = Math.min(
+                    SOLANA_BALANCE_BACKOFF_MAX_MS,
+                    SOLANA_BALANCE_BACKOFF_BASE_MS * (2 ** (solanaBalanceFailureCount - 1)),
+                );
+                solanaBalanceRetryAt = Date.now() + retryDelay;
+                console.warn(`[QuantumBridge] Solana devnet RPC is temporarily unavailable. Balance refresh paused for ${Math.ceil(retryDelay / 1000)}s.`);
+            } else {
+                console.warn("Solana balance fetch failed", e);
+            }
         }
     }
 }
@@ -3163,7 +3199,7 @@ maxBtn.addEventListener('click', () => {
 });
 
 refreshBalancesBtn.addEventListener('click', () => {
-    sounds.play('click'); updateBalances();
+    sounds.play('click'); updateBalances({ forceSolana: true });
 });
 
 amountInput.addEventListener('input', checkReady);
