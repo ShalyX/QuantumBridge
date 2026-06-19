@@ -177,9 +177,21 @@ function toTime(value) {
     return Number.isFinite(time) ? time : 0;
 }
 
+const MAX_REASONABLE_FILL_DURATION_MS = 30 * 60 * 1000;
+
+function isLateSyncedCompletion(transfer) {
+    const metadata = transfer.metadata || {};
+    const completedAt = toTime(metadata.completedAt || metadata.finishedAt || metadata.forwarderConfirmedAt);
+    const createdAt = toTime(transfer.createdAt);
+    return completedAt > 0 && createdAt > 0 && completedAt - createdAt > MAX_REASONABLE_FILL_DURATION_MS;
+}
+
 function getTransferListSortTime(transfer) {
     const metadata = transfer.metadata || {};
     const terminal = transfer.state === 'completed' || transfer.state === 'already_claimed';
+    if (terminal && isLateSyncedCompletion(transfer)) {
+        return toTime(transfer.createdAt || transfer.updatedAt);
+    }
     const candidates = terminal
         ? [
             metadata.completedAt,

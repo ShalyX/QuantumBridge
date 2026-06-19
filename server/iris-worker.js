@@ -27,6 +27,10 @@ function isForwarderConfirmed(message) {
     return Boolean(message?.forwardTxHash);
 }
 
+function isHistoricalForwarderRepair(transfer) {
+    return transfer?.useForwarder && transfer.state === 'completed' && !transfer.mintTxHash;
+}
+
 async function reconcileTransfer(store, transfer) {
     if (!transfer?.burnTxHash) return;
 
@@ -66,18 +70,23 @@ async function reconcileTransfer(store, transfer) {
 
         const message = attestation.message;
         if (transfer.useForwarder && isForwarderConfirmed(message)) {
+            const historicalRepair = isHistoricalForwarderRepair(transfer);
+            const completedAt = transfer.metadata?.completedAt ||
+                (historicalRepair ? transfer.updatedAt || checkedAt : checkedAt);
             await store.patchTransfer(transfer.id, {
                 state: 'completed',
                 mintTxHash: message.forwardTxHash || transfer.mintTxHash || null,
                 errorMessage: null,
                 lastCheckedAt: checkedAt,
                 attestation: message,
+                preserveUpdatedAt: historicalRepair,
                 metadata: {
                     ...(transfer.metadata || {}),
                     workerStatus: 'forwarder_confirmed',
                     forwardState: message.forwardState || null,
-                    completedAt: transfer.metadata?.completedAt || checkedAt,
+                    completedAt,
                     forwarderConfirmedAt: transfer.metadata?.forwarderConfirmedAt || checkedAt,
+                    historicalForwarderRepair: Boolean(transfer.metadata?.historicalForwarderRepair || historicalRepair),
                 },
             });
             return;

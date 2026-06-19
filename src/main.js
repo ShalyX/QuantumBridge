@@ -606,6 +606,8 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
 
 const pendingTransferSyncs = new Map();
 let transferSyncTimer = null;
+const TRANSFER_SYNC_RETRY_MS = 5000;
+const MAX_REASONABLE_FILL_DURATION_MS = 30 * 60 * 1000;
 let etaTimer = null;
 let activeEtaRoute = null;
 let etaRefreshSequence = 0;
@@ -881,6 +883,13 @@ function queueTransferSync(record) {
     }, 0);
 }
 
+function scheduleTransferSyncRetry() {
+    if (transferSyncTimer || pendingTransferSyncs.size === 0) return;
+    transferSyncTimer = window.setTimeout(() => {
+        flushQueuedTransferSyncs();
+    }, TRANSFER_SYNC_RETRY_MS);
+}
+
 async function flushQueuedTransferSyncs({ useBeacon = false } = {}) {
     if (transferSyncTimer) {
         window.clearTimeout(transferSyncTimer);
@@ -898,11 +907,19 @@ async function flushQueuedTransferSyncs({ useBeacon = false } = {}) {
         return;
     }
 
-    await Promise.allSettled(queued.map(payload => syncTransferToBackend(payload, 'upsert')));
+    const results = await Promise.all(queued.map(async payload => ({
+        payload,
+        ok: await syncTransferToBackend(payload, 'upsert'),
+    })));
+    const failed = results.filter(result => !result.ok);
+    for (const { payload } of failed) {
+        pendingTransferSyncs.set(payload.id, payload);
+    }
+    if (failed.length > 0) scheduleTransferSyncRetry();
 }
 
 async function syncTransferToBackend(record, mode = 'upsert') {
-    if (!record?.id) return;
+    if (!record?.id) return false;
     const payload = normalizeBackendTransferPayload(record);
     const method = mode === 'patch' ? 'PATCH' : 'POST';
     const path = method === 'PATCH'
@@ -918,8 +935,10 @@ async function syncTransferToBackend(record, mode = 'upsert') {
             const errorText = await response.text().catch(() => '');
             throw new Error(`Transfer API ${response.status}${errorText ? `: ${errorText.slice(0, 300)}` : ''}`);
         }
+        return true;
     } catch (error) {
         console.warn('[QuantumBridge] Transfer API sync failed; local cache remains active.', error);
+        return false;
     }
 }
 
@@ -3452,11 +3471,15 @@ teleportBtn.addEventListener('click', async () => {
                     errorMessage: null,
                 });
             }
-            patchTransferRecord(transferContext.id, {
+            const finalTransferRecord = patchTransferRecord(transferContext.id, {
                 state: nextState,
                 mintTxHash: destinationTxHash,
                 errorMessage: null,
-            });
+            }, { sync: false });
+            if (finalTransferRecord) {
+                const synced = await syncTransferToBackend(finalTransferRecord, 'upsert');
+                if (!synced) queueTransferSync(finalTransferRecord);
+            }
             addActivity('Teleport', from, to, amount, nextStatus, destinationTxHash, {
                 recoveryId: transferContext.id,
                 burnTxHash: finalBridgeContext.burnTxHash || null,
@@ -3468,6 +3491,11 @@ teleportBtn.addEventListener('click', async () => {
                 lifecycleState: nextState,
                 lifecycleLabel: nextLabel,
             });
+            if (currentActivityScope === 'global') {
+                syncGlobalTransfers();
+            } else {
+                syncServerTransfersForConnectedWallets();
+            }
         } else {
             const failedStep = result.steps?.find(s => s.state === 'error');
             const stepError = failedStep?.error;
@@ -3494,10 +3522,14 @@ teleportBtn.addEventListener('click', async () => {
             }
             finalEtaLabel = 'Paused';
             const nextState = finalBridgeContext.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
-            patchTransferRecord(transferContext.id, {
+            const failedTransferRecord = patchTransferRecord(transferContext.id, {
                 state: nextState,
                 errorMessage: productMessage,
-            });
+            }, { sync: false });
+            if (failedTransferRecord) {
+                const synced = await syncTransferToBackend(failedTransferRecord, 'upsert');
+                if (!synced) queueTransferSync(failedTransferRecord);
+            }
             recordTransferFailure(transferContext.id, {
                 stage: failedStep?.name || 'bridge.result',
                 route: `${from}->${to}`,
@@ -3538,10 +3570,14 @@ teleportBtn.addEventListener('click', async () => {
             || activeBridgeContext
             || {};
         const nextState = failedBridgeContext.burnTxHash ? TRANSFER_STATES.RECOVERABLE : TRANSFER_STATES.FAILED;
-        patchTransferRecord(failedBridgeContext.id, {
+        const exceptionTransferRecord = patchTransferRecord(failedBridgeContext.id, {
             state: nextState,
             errorMessage: productMessage,
-        });
+        }, { sync: false });
+        if (exceptionTransferRecord) {
+            const synced = await syncTransferToBackend(exceptionTransferRecord, 'upsert');
+            if (!synced) queueTransferSync(exceptionTransferRecord);
+        }
         recordTransferFailure(failedBridgeContext.id, {
             stage: 'bridge.exception',
             route: `${from}->${to}`,
@@ -3691,8 +3727,30 @@ function getActivityCompletionTime(item = {}) {
     return value || null;
 }
 
+function getActivityStartTime(item = {}) {
+    const value = item.timestamp || item.createdAt;
+    const time = new Date(value || '').getTime();
+    return Number.isFinite(time) ? time : null;
+}
+
+function getActivityFillDurationMs(item = {}) {
+    const started = getActivityStartTime(item);
+    const completed = getActivityCompletionTime(item);
+    if (!Number.isFinite(started) || !Number.isFinite(completed)) return null;
+    return completed - started;
+}
+
+function isLateSyncedCompletion(item = {}) {
+    const duration = getActivityFillDurationMs(item);
+    return Number.isFinite(duration) && duration > MAX_REASONABLE_FILL_DURATION_MS;
+}
+
 function getActivitySortTime(item = {}) {
     const lifecycleState = item.lifecycleState || item.state || (item.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : null);
+    if (isLateSyncedCompletion(item)) {
+        const created = getActivityStartTime(item);
+        if (Number.isFinite(created)) return created;
+    }
     const sortTimestamp = isTerminalActivityState(lifecycleState, item)
         ? (getActivityCompletionTime(item) || item.timestamp || item.createdAt)
         : (item.updatedAt || item.timestamp || item.createdAt);
@@ -3710,13 +3768,19 @@ function getActivityFillMeta(item) {
     }
     const lifecycleState = item.lifecycleState || item.state || (item.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : null);
     const completedAt = getActivityCompletionTime(item);
+    if (isLateSyncedCompletion(item)) {
+        return {
+            label: 'Completed',
+            sublabel: 'Synced from history',
+        };
+    }
     if (lifecycleState === TRANSFER_STATES.ALREADY_CLAIMED || item.alreadyMinted) {
         return {
             label: 'Completed',
             sublabel: completedAt ? formatRelativeTime(completedAt) : 'Already claimed',
         };
     }
-    const started = item.timestamp ? new Date(item.timestamp).getTime() : NaN;
+    const started = getActivityStartTime(item);
     const ended = completedAt ? new Date(completedAt).getTime() : NaN;
     return {
         label: Number.isFinite(started) && Number.isFinite(ended) ? formatDuration(ended - started) : 'Complete',
