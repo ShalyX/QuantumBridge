@@ -178,6 +178,7 @@ function toTime(value) {
 }
 
 const MAX_REASONABLE_FILL_DURATION_MS = 30 * 60 * 1000;
+const STALE_CREATED_TRANSFER_MS = 15 * 60 * 1000;
 
 function isLateSyncedCompletion(transfer) {
     const metadata = transfer.metadata || {};
@@ -238,6 +239,10 @@ function extractTransferPatchFromEvents(transfer, events = []) {
         !transfer.to ||
         !transfer.sourceWallet ||
         !(Array.isArray(transfer.wallets) && transfer.wallets.length);
+    const updatedAt = toTime(transfer.updatedAt || transfer.createdAt);
+    const isStaleCreated = transfer.state === 'created' &&
+        updatedAt > 0 &&
+        Date.now() - updatedAt > STALE_CREATED_TRANSFER_MS;
     let hasLifecycleEvent = false;
 
     for (const event of events) {
@@ -314,7 +319,17 @@ function extractTransferPatchFromEvents(transfer, events = []) {
     }
 
     if (!hasContext && !patch.burnTxHash && !patch.mintTxHash) return null;
-    if (transfer.state === 'created' && !hasLifecycleEvent && !missingContext) return null;
+    if (transfer.state === 'created' && !hasLifecycleEvent) {
+        if (!isStaleCreated && !missingContext) return null;
+        if (isStaleCreated) {
+            patch.state = 'failed';
+            patch.errorMessage = 'Transfer stopped before the source burn was submitted. No burn hash was produced, so no USDC was burned.';
+            patch.metadata = {
+                ...patch.metadata,
+                staleCreatedTransfer: true,
+            };
+        }
+    }
     return patch;
 }
 
