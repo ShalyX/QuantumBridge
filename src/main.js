@@ -3739,7 +3739,7 @@ function getActivityStartTime(item = {}) {
 
 function getActivityFillDurationMs(item = {}) {
     const started = getActivityStartTime(item);
-    const completed = getActivityCompletionTime(item);
+    const completed = new Date(getActivityCompletionTime(item) || '').getTime();
     if (!Number.isFinite(started) || !Number.isFinite(completed)) return null;
     return completed - started;
 }
