@@ -1704,6 +1704,12 @@ function syncDestinationAddressUI() {
     return valid;
 }
 
+function clearTransferInputs() {
+    amountInput.value = '';
+    if (destinationAddressInput) destinationAddressInput.value = '';
+    syncDestinationAddressUI();
+}
+
 function getRouteBaseEstimateSeconds(from = originChainSelect?.value, to = destinationChainSelect?.value) {
     const routeKey = `${from}:${to}`;
     if (ROUTE_BASE_ESTIMATE_SECONDS[routeKey]) return ROUTE_BASE_ESTIMATE_SECONDS[routeKey];
@@ -3500,6 +3506,7 @@ teleportBtn.addEventListener('click', async () => {
             } else {
                 sounds.play('success');
                 finalEtaLabel = 'Arrived';
+                clearTransferInputs();
                 successOverlay.style.display = 'flex';
                 syncBodyScrollLock();
             }
