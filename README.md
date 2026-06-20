@@ -69,6 +69,18 @@ Health check:
 /api/health
 ```
 
+## Testing
+
+```bash
+npm test          # lifecycle, worker, form, and API integration tests
+npm run build     # production bundle
+npm run test:e2e # Chromium product smoke tests
+```
+
+`npm run test:release` runs the complete local release gate. GitHub Actions runs the same checks on every pull request and every push to `main`.
+
+Live wallets and public testnet RPCs are intentionally excluded from CI. Record those checks using [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) before publishing a release.
+
 Brand and launch materials:
 
 - `docs/brand-kit.md`

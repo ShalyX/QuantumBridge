@@ -12,7 +12,7 @@ export default defineConfig({
     port: 3005,
     host: true,
     proxy: {
-      '/api': 'http://localhost:8787'
+      '/api': globalThis.process?.env?.VITE_API_PROXY_TARGET || 'http://localhost:8787'
     }
   },
   build: {

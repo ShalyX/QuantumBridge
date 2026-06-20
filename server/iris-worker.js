@@ -1,7 +1,7 @@
 const IRIS_API = process.env.IRIS_API || 'https://iris-api-sandbox.circle.com';
 const POLL_MS = Number(process.env.QUANTUM_WORKER_INTERVAL_MS || 5000);
 
-async function fetchCctpAttestation(sourceDomain, burnTxHash) {
+export async function fetchCctpAttestation(sourceDomain, burnTxHash) {
     const url = `${IRIS_API}/v2/messages/${sourceDomain}?transactionHash=${encodeURIComponent(burnTxHash)}`;
     const response = await fetch(url);
     if (response.status === 404) {
@@ -23,18 +23,21 @@ async function fetchCctpAttestation(sourceDomain, burnTxHash) {
     };
 }
 
-function isForwarderConfirmed(message) {
+export function isForwarderConfirmed(message) {
     return Boolean(message?.forwardTxHash);
 }
 
-function isHistoricalForwarderRepair(transfer) {
+export function isHistoricalForwarderRepair(transfer) {
     return transfer?.useForwarder && transfer.state === 'completed' && !transfer.mintTxHash;
 }
 
-async function reconcileTransfer(store, transfer) {
+export async function reconcileTransfer(store, transfer, {
+    fetchAttestation = fetchCctpAttestation,
+    now = () => new Date().toISOString(),
+} = {}) {
     if (!transfer?.burnTxHash) return;
 
-    const checkedAt = new Date().toISOString();
+    const checkedAt = now();
     if (transfer.alreadyMinted || transfer.state === 'already_claimed') {
         await store.patchTransfer(transfer.id, {
             state: 'already_claimed',
@@ -52,7 +55,7 @@ async function reconcileTransfer(store, transfer) {
     if (transfer.sourceDomain === undefined || transfer.sourceDomain === null) return;
 
     try {
-        const attestation = await fetchCctpAttestation(transfer.sourceDomain, transfer.burnTxHash);
+        const attestation = await fetchAttestation(transfer.sourceDomain, transfer.burnTxHash);
 
         if (attestation.status === 'not_indexed' || attestation.status === 'pending') {
             await store.patchTransfer(transfer.id, {

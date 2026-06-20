@@ -31,3 +31,5 @@ vite.config.js.timestamp-*.mjs
 *.sw?
 
 .vercel
+playwright-report/
+test-results/
