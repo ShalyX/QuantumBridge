@@ -186,6 +186,16 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        if (req.method === 'GET' && url.pathname === '/api/stats') {
+            const stats = await store.getStats();
+            sendJson(res, 200, {
+                ...stats,
+                label: 'Testnet USDC volume processed',
+                generatedAt: new Date().toISOString(),
+            });
+            return;
+        }
+
         if (req.method === 'GET' && url.pathname === '/api/transfers') {
             const wallet = url.searchParams.get('wallet');
             const requestedScope = url.searchParams.get('scope');

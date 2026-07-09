@@ -172,6 +172,80 @@ function filterTransfersByWallet(transfers, wallet) {
     ].filter(Boolean).some(value => String(value).toLowerCase() === needle));
 }
 
+function hasOnchainTransferActivity(transfer) {
+    return Boolean(transfer?.burnTxHash || transfer?.mintTxHash || transfer?.txHash || transfer?.alreadyMinted);
+}
+
+function shouldListTransfer(transfer) {
+    if (!transfer) return false;
+    if (hasOnchainTransferActivity(transfer)) return true;
+    return [
+        'burn_submitted',
+        'attestation_pending',
+        'mint_submitted',
+        'completed',
+        'recoverable',
+        'already_claimed',
+    ].includes(String(transfer.state || '').toLowerCase());
+}
+
+function filterListableTransfers(transfers) {
+    return transfers.filter(shouldListTransfer);
+}
+
+function toAmountNumber(value) {
+    const parsed = Number.parseFloat(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function formatUsdcAmount(value) {
+    if (!Number.isFinite(value)) return '0';
+    const fixed = value.toFixed(6);
+    return fixed.replace(/\.?0+$/, '');
+}
+
+function buildTransferStats(transfers = []) {
+    const completed = transfers.filter(transfer =>
+        ['completed', 'already_claimed'].includes(String(transfer.state || '').toLowerCase()) &&
+        Boolean(transfer.burnTxHash)
+    );
+    const routesByKey = new Map();
+    let total = 0;
+
+    for (const transfer of completed) {
+        const amount = toAmountNumber(transfer.amount);
+        if (amount <= 0) continue;
+        const from = transfer.from || 'unknown';
+        const to = transfer.to || 'unknown';
+        const key = `${from}:${to}`;
+        const existing = routesByKey.get(key) || {
+            from,
+            to,
+            total: 0,
+            completedTransfers: 0,
+        };
+        existing.total += amount;
+        existing.completedTransfers += 1;
+        routesByKey.set(key, existing);
+        total += amount;
+    }
+
+    const routes = Array.from(routesByKey.values())
+        .sort((a, b) => b.total - a.total)
+        .map(route => ({
+            from: route.from,
+            to: route.to,
+            totalProcessedUsdc: formatUsdcAmount(route.total),
+            completedTransfers: route.completedTransfers,
+        }));
+
+    return {
+        totalProcessedUsdc: formatUsdcAmount(total),
+        completedTransfers: completed.filter(transfer => toAmountNumber(transfer.amount) > 0).length,
+        routes,
+    };
+}
+
 function toTime(value) {
     const time = new Date(value || '').getTime();
     return Number.isFinite(time) ? time : 0;
@@ -470,7 +544,16 @@ class SqliteStore {
         const safeLimit = clampListLimit(limit);
         const internalLimit = Math.max(safeLimit, 500);
         const rows = this.db.prepare('SELECT * FROM transfers ORDER BY updated_at DESC LIMIT ?').all(internalLimit);
-        return sortTransferList(filterTransfersByWallet(rows.map(rowToTransfer), wallet)).slice(0, safeLimit);
+        return sortTransferList(filterListableTransfers(filterTransfersByWallet(rows.map(rowToTransfer), wallet))).slice(0, safeLimit);
+    }
+
+    async getStats() {
+        const rows = this.db.prepare(`
+            SELECT * FROM transfers
+            WHERE state IN ('completed', 'already_claimed')
+              AND burn_tx_hash IS NOT NULL
+        `).all();
+        return buildTransferStats(rows.map(rowToTransfer));
     }
 
     async listTransfersForWorker() {
@@ -693,7 +776,16 @@ class PostgresStore {
         const safeLimit = clampListLimit(limit);
         const internalLimit = Math.max(safeLimit, 500);
         const result = await this.pool.query('SELECT * FROM transfers ORDER BY updated_at DESC LIMIT $1', [internalLimit]);
-        return sortTransferList(filterTransfersByWallet(result.rows.map(rowToTransfer), wallet)).slice(0, safeLimit);
+        return sortTransferList(filterListableTransfers(filterTransfersByWallet(result.rows.map(rowToTransfer), wallet))).slice(0, safeLimit);
+    }
+
+    async getStats() {
+        const result = await this.pool.query(`
+            SELECT * FROM transfers
+            WHERE state IN ('completed', 'already_claimed')
+              AND burn_tx_hash IS NOT NULL
+        `);
+        return buildTransferStats(result.rows.map(rowToTransfer));
     }
 
     async listTransfersForWorker() {

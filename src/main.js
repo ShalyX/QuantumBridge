@@ -601,6 +601,7 @@ const PRODUCT_ERROR_MESSAGES = Object.freeze({
     solanaBlockhashExpired: 'Solana mint transaction expired before submission. Your burn is saved; open Activity and use Resume transfer to submit a fresh mint.',
     simulationFailed: 'The destination chain rejected this mint. Try Resume transfer again, or use a supported wallet for this route.',
     appAssetUnavailable: 'App update asset failed to load. Refresh once and retry; your transfer will remain recoverable if the burn already happened.',
+    networkRequestFailed: 'Network request failed before the burn was submitted. Refresh, check your connection, and retry.',
     genericRecoverable: 'Transfer paused. Open Activity and use Resume transfer when wallets are connected.',
 });
 
@@ -956,9 +957,27 @@ function recordTransferFailure(transferId, details = {}) {
     });
 }
 
+function hasOnchainActivityRecord(record) {
+    return Boolean(record?.burnTxHash || record?.mintTxHash || record?.txHash || record?.alreadyMinted);
+}
+
+function shouldShowTransferInActivity(record, lifecycleState = record?.state || record?.lifecycleState) {
+    if (!record) return false;
+    if (hasOnchainActivityRecord(record)) return true;
+    return [
+        TRANSFER_STATES.BURN_SUBMITTED,
+        TRANSFER_STATES.ATTESTATION_PENDING,
+        TRANSFER_STATES.MINT_SUBMITTED,
+        TRANSFER_STATES.COMPLETED,
+        TRANSFER_STATES.RECOVERABLE,
+        TRANSFER_STATES.ALREADY_CLAIMED,
+    ].includes(lifecycleState);
+}
+
 function transferToActivity(transfer, { type = 'Teleport' } = {}) {
     if (!transfer) return null;
     const lifecycleState = transfer.state || (transfer.alreadyMinted ? TRANSFER_STATES.ALREADY_CLAIMED : TRANSFER_STATES.CREATED);
+    if (!shouldShowTransferInActivity(transfer, lifecycleState)) return null;
     const id = transfer.id || transfer.recoveryId || transfer.burnTxHash || transfer.mintTxHash;
     const completedAt = transfer.metadata?.completedAt ||
         transfer.metadata?.finishedAt ||
@@ -1007,7 +1026,7 @@ function mergeBackendTransfersIntoLocal(transfers) {
             alreadyMinted: transfer.alreadyMinted,
         };
         upsertTransferRecord(localTransfer, { sync: false });
-        if (transfer.from && transfer.to) {
+        if (transfer.from && transfer.to && shouldShowTransferInActivity(transfer, transfer.state)) {
             addActivity('Teleport', transfer.from, transfer.to, transfer.amount || 'unknown', getTransferStatusBucket(transfer.state, transfer), transfer.mintTxHash || null, {
                 id: transfer.id || transfer.recoveryId || transfer.burnTxHash,
                 recoveryId: transfer.recoveryId || transfer.id,
@@ -1439,6 +1458,14 @@ function getProductErrorMessage(error) {
     }
     if (lower.includes('failed to fetch dynamically imported module') || lower.includes('/assets/ccip-')) {
         return PRODUCT_ERROR_MESSAGES.appAssetUnavailable;
+    }
+    if (
+        lower === 'failed to fetch' ||
+        lower.includes('failed to fetch typeerror') ||
+        lower.includes('typeerror: failed to fetch') ||
+        lower.includes('networkerror when attempting to fetch resource')
+    ) {
+        return PRODUCT_ERROR_MESSAGES.networkRequestFailed;
     }
     if (lower.includes('looks like an evm transaction hash')) return PRODUCT_ERROR_MESSAGES.solanaHashMismatch;
     if (lower.includes('looks like a solana signature')) return PRODUCT_ERROR_MESSAGES.evmHashMismatch;
@@ -3763,6 +3790,7 @@ function getActivityById(id) {
 function getVisibleActivities() {
     const query = currentActivitySearch.trim().toLowerCase();
     return getCurrentActivitySource().filter(item => {
+        if (!shouldShowTransferInActivity(item, item.lifecycleState || item.state)) return false;
         const status = item.status || 'pending';
         const statusMatches = currentStatusFilter === 'all' || status === currentStatusFilter;
         const chainMatches = currentChainFilter === 'all' ||
@@ -3997,6 +4025,7 @@ function syncRecoveryActivityCards() {
 }
 
 function addActivity(type, from, to, amount, status, txHash = null, extra = {}) {
+    if (!shouldShowTransferInActivity({ ...extra, txHash }, extra.lifecycleState || extra.state)) return;
     const existingIndex = activityHistory.findIndex(a => {
         if (extra.recoveryId && a.recoveryId === extra.recoveryId) return true;
         return a.status === 'pending' && a.type === type && a.amount === amount && a.from === from && a.to === to;
@@ -4040,7 +4069,12 @@ function renderActivity() {
     if (clearActivityBtn) {
         clearActivityBtn.hidden = currentActivityScope === 'global';
     }
-    const activitySource = getCurrentActivitySource();
+    const rawActivitySource = getCurrentActivitySource();
+    const activitySource = rawActivitySource.filter(item => shouldShowTransferInActivity(item, item.lifecycleState || item.state));
+    if (currentActivityScope !== 'global' && rawActivitySource.length !== activitySource.length) {
+        activityHistory = activitySource;
+        saveActivity();
+    }
     const visibleActivities = getVisibleActivities();
     if (activitySource.length === 0) {
         const emptyMessage = currentActivityScope === 'global'
